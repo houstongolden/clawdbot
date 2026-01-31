@@ -298,3 +298,43 @@ function renderMonitorIcon() {
     </svg>
   `;
 }
+
+/**
+ * Render the Agent/Notes view toggle
+ * Styled with Myo branding (sunset gradients, teal accents)
+ */
+export function renderViewToggle(state: AppViewState) {
+  const isAgent = state.settings.viewMode === "agent";
+  const isNotes = state.settings.viewMode === "notes";
+
+  return html`
+    <div class="view-toggle">
+      <button
+        class="view-toggle__button ${isAgent ? "active" : ""}"
+        @click=${() =>
+          state.applySettings({
+            ...state.settings,
+            viewMode: "agent",
+          })}
+        aria-pressed=${isAgent}
+        title="Agent Control Panel"
+      >
+        <span class="view-toggle__icon">${icons.agent}</span>
+        <span class="view-toggle__label">Agent</span>
+      </button>
+      <button
+        class="view-toggle__button ${isNotes ? "active" : ""}"
+        @click=${() =>
+          state.applySettings({
+            ...state.settings,
+            viewMode: "notes",
+          })}
+        aria-pressed=${isNotes}
+        title="Second Brain Notes"
+      >
+        <span class="view-toggle__icon">${icons.notes}</span>
+        <span class="view-toggle__label">Notes</span>
+      </button>
+    </div>
+  `;
+}

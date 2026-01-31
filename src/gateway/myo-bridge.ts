@@ -1,0 +1,561 @@
+/**
+ * Myo Bridge - WebSocket Server for Myo.ai Integration
+ *
+ * This module handles real-time communication between Myobot (local) and
+ * Myo.ai (cloud). It provides:
+ * - Authenticated WebSocket connections
+ * - Task execution with progress streaming
+ * - Session access and management
+ * - File system operations
+ */
+
+import type { IncomingMessage } from "node:http";
+import type { WebSocket, WebSocketServer } from "ws";
+import { validateToken } from "./pairing-api.js";
+import {
+  initSessionSync,
+  startHeartbeat,
+  stopHeartbeat,
+  syncSessionSnapshot,
+  getLatestSnapshot,
+  markHandoff,
+} from "./session-sync-api.js";
+
+// ============================================================================
+// Types (mirroring Myo.ai protocol.ts)
+// ============================================================================
+
+interface BaseMessage {
+  id: string;
+  ts: number;
+}
+
+interface RequestMessage extends BaseMessage {
+  type: "request";
+  method: string;
+  params?: Record<string, unknown>;
+}
+
+interface ResponseMessage extends BaseMessage {
+  type: "response";
+  requestId: string;
+  result?: unknown;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+}
+
+interface EventMessage extends BaseMessage {
+  type: "event";
+  event: string;
+  data?: unknown;
+}
+
+type Message = RequestMessage | ResponseMessage | EventMessage;
+
+// ============================================================================
+// Connection State
+// ============================================================================
+
+interface MyoConnection {
+  ws: WebSocket;
+  token: string;
+  connectedAt: number;
+  lastPingAt: number;
+  clientInfo?: {
+    origin?: string;
+    userAgent?: string;
+  };
+}
+
+const connections = new Map<WebSocket, MyoConnection>();
+
+// ============================================================================
+// Message Helpers
+// ============================================================================
+
+let messageIdCounter = 0;
+
+function generateMessageId(): string {
+  return `${Date.now()}-${++messageIdCounter}`;
+}
+
+function sendResponse(
+  ws: WebSocket,
+  requestId: string,
+  result?: unknown,
+  error?: ResponseMessage["error"],
+): void {
+  const response: ResponseMessage = {
+    id: generateMessageId(),
+    ts: Date.now(),
+    type: "response",
+    requestId,
+    result,
+    error,
+  };
+
+  if (ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify(response));
+  }
+}
+
+function sendEvent(ws: WebSocket, event: string, data?: unknown): void {
+  const eventMsg: EventMessage = {
+    id: generateMessageId(),
+    ts: Date.now(),
+    type: "event",
+    event,
+    data,
+  };
+
+  if (ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify(eventMsg));
+  }
+}
+
+function broadcastEvent(event: string, data?: unknown): void {
+  for (const [ws] of connections) {
+    sendEvent(ws, event, data);
+  }
+}
+
+// ============================================================================
+// Request Handlers
+// ============================================================================
+
+async function handleRequest(
+  ws: WebSocket,
+  msg: RequestMessage,
+  _connection: MyoConnection,
+): Promise<void> {
+  const { method, params } = msg;
+
+  try {
+    switch (method) {
+      case "ping": {
+        sendResponse(ws, msg.id, {
+          pong: true,
+          serverTime: Date.now(),
+        });
+        break;
+      }
+
+      case "gateway.info": {
+        // TODO: Get actual gateway info from config
+        sendResponse(ws, msg.id, {
+          name: "Myobot",
+          version: process.env.OPENCLAW_SERVICE_VERSION || "unknown",
+          uptime: process.uptime() * 1000,
+          agent: "main",
+          channels: ["telegram"], // TODO: Get from config
+          sessionCount: 0, // TODO: Count sessions
+        });
+        break;
+      }
+
+      case "gateway.config": {
+        // TODO: Implement config get/set
+        sendResponse(ws, msg.id, {
+          config: {
+            model: "anthropic/claude-sonnet-4-20250514",
+          },
+        });
+        break;
+      }
+
+      case "task.execute": {
+        const { taskId, title, description, stream } = params as {
+          taskId: string;
+          title: string;
+          description: string;
+          stream?: boolean;
+        };
+
+        // TODO: Implement actual task execution
+        // For now, simulate with progress events
+        sendResponse(ws, msg.id, {
+          sessionKey: `task:${taskId}`,
+          streaming: stream ?? true,
+        });
+
+        if (stream) {
+          // Simulate progress events
+          setTimeout(() => {
+            sendEvent(ws, "task.progress", {
+              taskId,
+              content: `Starting task: ${title}...`,
+              progress: 10,
+            });
+          }, 500);
+
+          setTimeout(() => {
+            sendEvent(ws, "task.progress", {
+              taskId,
+              content: `Processing: ${description}`,
+              progress: 50,
+            });
+          }, 1500);
+
+          setTimeout(() => {
+            sendEvent(ws, "task.complete", {
+              taskId,
+              result: `Task completed: ${title}`,
+              artifacts: [],
+              durationMs: 2000,
+            });
+          }, 2500);
+        }
+        break;
+      }
+
+      case "task.cancel": {
+        const { taskId } = params as { taskId: string };
+        // TODO: Implement task cancellation
+        sendResponse(ws, msg.id, { cancelled: true });
+        sendEvent(ws, "task.error", {
+          taskId,
+          error: "Task cancelled by user",
+          retryable: true,
+        });
+        break;
+      }
+
+      case "session.list": {
+        // TODO: Implement actual session listing
+        sendResponse(ws, msg.id, {
+          sessions: [],
+          total: 0,
+        });
+        break;
+      }
+
+      case "session.get": {
+        const { sessionKey } = params as { sessionKey: string };
+        // TODO: Implement actual session fetching
+        sendResponse(ws, msg.id, undefined, {
+          code: "NOT_FOUND",
+          message: `Session not found: ${sessionKey}`,
+        });
+        break;
+      }
+
+      case "session.send": {
+        const { sessionKey, message } = params as {
+          sessionKey: string;
+          message: string;
+        };
+        // TODO: Implement sending to session
+        sendResponse(ws, msg.id, { sent: true });
+        break;
+      }
+
+      case "files.list": {
+        const { path: dirPath } = params as { path?: string };
+        // TODO: Implement file listing with security checks
+        sendResponse(ws, msg.id, { files: [] });
+        break;
+      }
+
+      case "files.read": {
+        const { path: filePath, maxBytes } = params as {
+          path: string;
+          maxBytes?: number;
+        };
+        // TODO: Implement file reading with security checks
+        sendResponse(ws, msg.id, undefined, {
+          code: "NOT_IMPLEMENTED",
+          message: "File reading not yet implemented",
+        });
+        break;
+      }
+
+      case "files.write": {
+        const {
+          path: filePath,
+          content,
+          append,
+        } = params as {
+          path: string;
+          content: string;
+          append?: boolean;
+        };
+        // TODO: Implement file writing with security checks
+        sendResponse(ws, msg.id, undefined, {
+          code: "NOT_IMPLEMENTED",
+          message: "File writing not yet implemented",
+        });
+        break;
+      }
+
+      case "files.delete": {
+        const { path: filePath } = params as { path: string };
+        // TODO: Implement file deletion with security checks
+        sendResponse(ws, msg.id, undefined, {
+          code: "NOT_IMPLEMENTED",
+          message: "File deletion not yet implemented",
+        });
+        break;
+      }
+
+      // -----------------------------------------------------------------------
+      // Session Sync (Graceful Handoff)
+      // -----------------------------------------------------------------------
+
+      case "session.sync": {
+        const snapshot = params as {
+          user_id: string;
+          gateway_id: string;
+          session_key: string;
+          messages: Array<{ role: string; content: string; timestamp?: string }>;
+          context?: Record<string, unknown>;
+          pending_tasks?: Array<{ id: string; description: string; status: string }>;
+          active_work?: string;
+          channel?: string;
+          agent?: string;
+          message_count?: number;
+        };
+
+        try {
+          const result = await syncSessionSnapshot(snapshot as any);
+          if (result.success) {
+            sendResponse(ws, msg.id, {
+              success: true,
+              snapshotId: result.snapshotId,
+            });
+          } else {
+            sendResponse(ws, msg.id, undefined, {
+              code: "SYNC_FAILED",
+              message: result.error || "Session sync failed",
+            });
+          }
+        } catch (err) {
+          sendResponse(ws, msg.id, undefined, {
+            code: "SYNC_ERROR",
+            message: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
+        break;
+      }
+
+      case "session.latest": {
+        const { user_id, session_key } = params as {
+          user_id: string;
+          session_key?: string;
+        };
+
+        try {
+          const snapshot = await getLatestSnapshot(user_id, session_key);
+          sendResponse(ws, msg.id, { snapshot });
+        } catch (err) {
+          sendResponse(ws, msg.id, undefined, {
+            code: "FETCH_ERROR",
+            message: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
+        break;
+      }
+
+      case "session.handoff": {
+        const { user_id, session_key } = params as {
+          user_id: string;
+          session_key: string;
+        };
+
+        try {
+          const success = await markHandoff(user_id, session_key);
+          sendResponse(ws, msg.id, { success });
+        } catch (err) {
+          sendResponse(ws, msg.id, undefined, {
+            code: "HANDOFF_ERROR",
+            message: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
+        break;
+      }
+
+      case "heartbeat.start": {
+        const { gateway_id, user_id } = params as {
+          gateway_id: string;
+          user_id: string;
+        };
+
+        try {
+          initSessionSync({ gatewayId: gateway_id, userId: user_id });
+          startHeartbeat();
+          sendResponse(ws, msg.id, { started: true });
+        } catch (err) {
+          sendResponse(ws, msg.id, undefined, {
+            code: "HEARTBEAT_ERROR",
+            message: err instanceof Error ? err.message : "Unknown error",
+          });
+        }
+        break;
+      }
+
+      case "heartbeat.stop": {
+        stopHeartbeat();
+        sendResponse(ws, msg.id, { stopped: true });
+        break;
+      }
+
+      default:
+        sendResponse(ws, msg.id, undefined, {
+          code: "UNKNOWN_METHOD",
+          message: `Unknown method: ${method}`,
+        });
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    sendResponse(ws, msg.id, undefined, {
+      code: "INTERNAL_ERROR",
+      message: errorMessage,
+    });
+  }
+}
+
+// ============================================================================
+// WebSocket Handler
+// ============================================================================
+
+function handleMessage(ws: WebSocket, data: string): void {
+  const connection = connections.get(ws);
+  if (!connection) return;
+
+  let msg: Message;
+  try {
+    msg = JSON.parse(data);
+  } catch {
+    console.error("[myo-bridge] Invalid JSON received");
+    return;
+  }
+
+  if (!msg.id || !msg.type || !msg.ts) {
+    console.error("[myo-bridge] Invalid message format");
+    return;
+  }
+
+  // Update last activity
+  connection.lastPingAt = Date.now();
+
+  if (msg.type === "request") {
+    handleRequest(ws, msg as RequestMessage, connection).catch((error) => {
+      console.error("[myo-bridge] Request handler error:", error);
+    });
+  }
+}
+
+function handleClose(ws: WebSocket): void {
+  const connection = connections.get(ws);
+  if (connection) {
+    console.log("[myo-bridge] Client disconnected");
+    connections.delete(ws);
+  }
+}
+
+function handleError(ws: WebSocket, error: Error): void {
+  console.error("[myo-bridge] WebSocket error:", error);
+}
+
+// ============================================================================
+// Authentication
+// ============================================================================
+
+function extractAuthToken(req: IncomingMessage): string | null {
+  // Try Authorization header
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    return authHeader.slice(7);
+  }
+
+  // Try query parameter
+  const url = new URL(req.url || "/", `http://${req.headers.host}`);
+  const tokenParam = url.searchParams.get("token");
+  if (tokenParam) {
+    return tokenParam;
+  }
+
+  return null;
+}
+
+// ============================================================================
+// Setup
+// ============================================================================
+
+/**
+ * Attach Myo Bridge to an existing WebSocket server
+ *
+ * This handles the /ws/myo path for Myo.ai connections
+ */
+export function attachMyoBridge(wss: WebSocketServer): void {
+  wss.on("connection", (ws: WebSocket, req: IncomingMessage) => {
+    const url = new URL(req.url || "/", `http://${req.headers.host}`);
+
+    // Only handle /ws/myo path
+    if (url.pathname !== "/ws/myo") {
+      return; // Let other handlers deal with it
+    }
+
+    // Authenticate
+    const token = extractAuthToken(req);
+    if (!token) {
+      console.log("[myo-bridge] Connection rejected: No auth token");
+      ws.close(4001, "Authentication required");
+      return;
+    }
+
+    if (!validateToken(token)) {
+      console.log("[myo-bridge] Connection rejected: Invalid token");
+      ws.close(4003, "Invalid token");
+      return;
+    }
+
+    // Accept connection
+    const connection: MyoConnection = {
+      ws,
+      token,
+      connectedAt: Date.now(),
+      lastPingAt: Date.now(),
+      clientInfo: {
+        origin: req.headers.origin,
+        userAgent: req.headers["user-agent"],
+      },
+    };
+
+    connections.set(ws, connection);
+    console.log("[myo-bridge] Client connected from:", connection.clientInfo?.origin);
+
+    // Send connected event
+    sendEvent(ws, "gateway.status", {
+      status: "healthy",
+      message: "Connected to Myobot",
+    });
+
+    // Set up handlers
+    ws.on("message", (data) => handleMessage(ws, data.toString()));
+    ws.on("close", () => handleClose(ws));
+    ws.on("error", (error) => handleError(ws, error));
+  });
+
+  console.log("[myo-bridge] Myo Bridge attached to WebSocket server");
+}
+
+/**
+ * Get the number of active Myo.ai connections
+ */
+export function getConnectionCount(): number {
+  return connections.size;
+}
+
+/**
+ * Broadcast an event to all connected Myo.ai clients
+ */
+export { broadcastEvent };
+
+export default {
+  attachMyoBridge,
+  getConnectionCount,
+  broadcastEvent,
+};

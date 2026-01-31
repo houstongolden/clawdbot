@@ -122,6 +122,35 @@ export type AppViewState = {
   cronRunsJobId: string | null;
   cronRuns: CronRunLogEntry[];
   cronBusy: boolean;
+  // Tasks (Myo.ai integration)
+  tasks: Array<{
+    id: string;
+    title: string;
+    description?: string;
+    status: string;
+    priority?: string;
+    due_date?: string;
+    assigned_gateway_id?: string;
+    execution_started_at?: string;
+    execution_completed_at?: string;
+    execution_duration_ms?: number;
+    execution_result?: string;
+    execution_error?: string;
+    created_at: string;
+    updated_at: string;
+  }>;
+  activeExecutions: Array<{
+    id: string;
+    title: string;
+    status: string;
+    startedAt: number;
+    progress?: string;
+  }>;
+  tasksLoading: boolean;
+  tasksError: string | null;
+  // Session sync / handoff
+  sessionSyncing: boolean;
+  lastSessionSyncAt: string | null;
   skillsLoading: boolean;
   skillsReport: SkillStatusReport | null;
   skillsError: string | null;

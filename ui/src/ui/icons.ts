@@ -65,6 +65,12 @@ export const icons = {
     <rect x="26" y="18" width="4" height="4" fill="url(#myo-grad)"/>
     <rect x="26" y="22" width="4" height="4" fill="url(#myo-grad)"/>
   </svg>`,
+
+  // Notes/Second Brain icon - pixel notebook with sunset accent
+  notes: html`<svg viewBox="0 0 24 24"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/><path d="M10 16s.8 1 2 1c1.3 0 2-1 2-1"/><path d="M8 13h.01"/><path d="M16 13h.01"/></svg>`,
+
+  // Robot/Agent icon
+  agent: html`<svg viewBox="0 0 24 24"><rect width="18" height="10" x="3" y="11" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" x2="8" y1="16" y2="16"/><line x1="16" x2="16" y1="16" y2="16"/></svg>`,
 } as const;
 
 export type IconName = keyof typeof icons;

@@ -371,4 +371,29 @@
     width: 11px;
     height: 11px;
   }
+
+  /* View toggle mobile styles */
+  .view-toggle {
+    margin-left: 8px;
+    padding: 2px;
+  }
+
+  .view-toggle__button {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  .view-toggle__icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  .view-toggle__icon svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .view-toggle__label {
+    display: none;
+  }
 }

@@ -2,6 +2,8 @@ const KEY = "openclaw.control.settings.v1";
 
 import type { ThemeMode } from "./theme";
 
+export type ViewMode = "agent" | "notes";
+
 export type UiSettings = {
   gatewayUrl: string;
   token: string;
@@ -13,6 +15,8 @@ export type UiSettings = {
   splitRatio: number; // Sidebar split ratio (0.4 to 0.7, default 0.6)
   navCollapsed: boolean; // Collapsible sidebar state
   navGroupsCollapsed: Record<string, boolean>; // Which nav groups are collapsed
+  viewMode: ViewMode; // Toggle between Agent control panel and Notes (Second Brain)
+  showActivityDropdown: boolean; // Show/hide activity status dropdown
 };
 
 export function loadSettings(): UiSettings {
@@ -32,6 +36,8 @@ export function loadSettings(): UiSettings {
     splitRatio: 0.6,
     navCollapsed: false,
     navGroupsCollapsed: {},
+    viewMode: "agent",
+    showActivityDropdown: false,
   };
 
   try {
@@ -84,6 +90,10 @@ export function loadSettings(): UiSettings {
         parsed.navGroupsCollapsed !== null
           ? parsed.navGroupsCollapsed
           : defaults.navGroupsCollapsed,
+      viewMode:
+        parsed.viewMode === "agent" || parsed.viewMode === "notes"
+          ? parsed.viewMode
+          : defaults.viewMode,
     };
   } catch {
     return defaults;

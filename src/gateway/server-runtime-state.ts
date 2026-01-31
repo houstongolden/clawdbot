@@ -17,6 +17,7 @@ import { createGatewayBroadcaster } from "./server-broadcast.js";
 import { type ChatRunEntry, createChatRunState } from "./server-chat.js";
 import { MAX_PAYLOAD_BYTES } from "./server-constants.js";
 import { attachGatewayUpgradeHandler, createGatewayHttpServer } from "./server-http.js";
+import { attachMyoBridge } from "./myo-bridge.js";
 import type { DedupeEntry } from "./server-shared.js";
 import type { PluginRegistry } from "../plugins/registry.js";
 import type { GatewayTlsRuntime } from "./server/tls.js";
@@ -147,6 +148,9 @@ export async function createGatewayRuntimeState(params: {
   for (const server of httpServers) {
     attachGatewayUpgradeHandler({ httpServer: server, wss, canvasHost });
   }
+
+  // Attach Myo.ai bridge for real-time communication
+  attachMyoBridge(wss);
 
   const clients = new Set<GatewayWsClient>();
   const { broadcast } = createGatewayBroadcaster({ clients });

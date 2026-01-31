@@ -16,11 +16,17 @@ export type OverviewProps = {
   cronEnabled: boolean | null;
   cronNext: number | null;
   lastChannelsRefresh: number | null;
+  // Cloud sync / handoff
+  sessionSyncing?: boolean;
+  lastSessionSyncAt?: string | null;
+  cloudConnected?: boolean;
   onSettingsChange: (next: UiSettings) => void;
   onPasswordChange: (next: string) => void;
   onSessionKeyChange: (next: string) => void;
   onConnect: () => void;
   onRefresh: () => void;
+  onSyncSession?: () => void;
+  onHandoffToCloud?: () => void;
 };
 
 export function renderOverview(props: OverviewProps) {
@@ -234,6 +240,43 @@ export function renderOverview(props: OverviewProps) {
               : "Disabled"}
         </div>
         <div class="muted">Next wake ${formatNextRun(props.cronNext)}</div>
+      </div>
+    </section>
+
+    <!-- Cloud Sync Section -->
+    <section class="card" style="margin-top: 18px;">
+      <div class="card-title">☁️ Cloud Sync</div>
+      <div class="card-sub">Sync sessions to Myo.ai for seamless handoff when closing your laptop.</div>
+      <div style="margin-top: 14px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 200px;">
+          <div class="stat-label">Last Sync</div>
+          <div class="stat-value" style="font-size: 0.875rem;">
+            ${props.lastSessionSyncAt 
+              ? formatAgo(new Date(props.lastSessionSyncAt).getTime()) 
+              : "Never"}
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button 
+            class="btn btn-secondary"
+            @click=${props.onSyncSession}
+            ?disabled=${props.sessionSyncing || !props.connected}
+            style="padding: 8px 12px; font-size: 0.8125rem;"
+          >
+            ${props.sessionSyncing ? "Syncing..." : "🔄 Sync Now"}
+          </button>
+          <button 
+            class="btn btn-primary"
+            @click=${props.onHandoffToCloud}
+            ?disabled=${props.sessionSyncing || !props.connected}
+            style="padding: 8px 12px; font-size: 0.8125rem;"
+          >
+            ☁️ Hand Off to Cloud
+          </button>
+        </div>
+      </div>
+      <div class="muted" style="margin-top: 8px; font-size: 0.75rem;">
+        Hand off when you're about to close your laptop. Myo will continue in the cloud and notify you of updates.
       </div>
     </section>
 

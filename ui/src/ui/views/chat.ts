@@ -466,6 +466,9 @@ function buildChatItems(props: ChatProps): Array<ChatItem | MessageGroup> {
     } else {
       items.push({ kind: "reading-indicator", key });
     }
+  } else if (props.sending) {
+    // Show reading indicator when sending but no stream yet (agent is thinking)
+    items.push({ kind: "reading-indicator", key: `sending:${props.sessionKey}` });
   }
 
   return groupMessages(items);

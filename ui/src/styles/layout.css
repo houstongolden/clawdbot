@@ -117,6 +117,63 @@
   width: 28px;
   height: 28px;
   flex-shrink: 0;
+  position: relative;
+}
+
+/* Animated glow ring around logo when active */
+.brand-logo::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent,
+    var(--brand-accent, #14b8a6),
+    transparent
+  );
+  opacity: 0;
+  animation: none;
+  z-index: -1;
+}
+
+.brand-logo.active::after {
+  opacity: 1;
+  animation: logo-spin 2s linear infinite;
+}
+
+.brand-logo.active svg {
+  filter: drop-shadow(0 0 8px rgba(20, 184, 166, 0.5));
+}
+
+/* Subtle pulse when idle but connected */
+.brand-logo.idle svg {
+  animation: logo-idle-pulse 3s ease-in-out infinite;
+}
+
+@keyframes logo-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes logo-idle-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes logo-working-pulse {
+  0%, 100% { 
+    transform: scale(1);
+    filter: drop-shadow(0 0 4px rgba(20, 184, 166, 0.3));
+  }
+  50% { 
+    transform: scale(1.05);
+    filter: drop-shadow(0 0 12px rgba(20, 184, 166, 0.6));
+  }
+}
+
+.brand-logo.working svg {
+  animation: logo-working-pulse 1.5s ease-in-out infinite;
 }
 
 .brand-logo img {
@@ -174,6 +231,80 @@
 .topbar-status .statusDot {
   width: 6px;
   height: 6px;
+}
+
+/* Enhanced activity status indicator */
+.activity-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.activity-status.working {
+  background: linear-gradient(135deg, rgba(20, 184, 166, 0.15), rgba(6, 182, 212, 0.15));
+  border: 1px solid rgba(20, 184, 166, 0.3);
+}
+
+.activity-status.idle {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.activity-status.offline {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.activity-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: all 0.3s ease;
+}
+
+.activity-indicator.working {
+  background: #14b8a6;
+  box-shadow: 0 0 8px rgba(20, 184, 166, 0.6);
+  animation: activity-pulse 1s ease-in-out infinite;
+}
+
+.activity-indicator.idle {
+  background: #22c55e;
+}
+
+.activity-indicator.offline {
+  background: #ef4444;
+}
+
+@keyframes activity-pulse {
+  0%, 100% { 
+    transform: scale(1);
+    box-shadow: 0 0 4px rgba(20, 184, 166, 0.4);
+  }
+  50% { 
+    transform: scale(1.2);
+    box-shadow: 0 0 12px rgba(20, 184, 166, 0.8);
+  }
+}
+
+.activity-label {
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.activity-count {
+  background: var(--surface-3);
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 10px;
+  color: var(--muted);
 }
 
 .topbar-status .theme-toggle {
@@ -553,6 +684,121 @@
    Responsive - Tablet
    =========================================== */
 
+/* ===========================================
+   View Toggle (Agent / Notes)
+   =========================================== */
+
+.view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--bg-muted);
+  border-radius: var(--radius-lg);
+  margin-left: 16px;
+}
+
+.view-toggle__button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition:
+    background var(--duration-fast) ease,
+    color var(--duration-fast) ease,
+    box-shadow var(--duration-fast) ease;
+}
+
+.view-toggle__button:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.view-toggle__button.active {
+  color: var(--text-strong);
+  background: linear-gradient(135deg, #FF8844 0%, #FF6633 100%);
+  box-shadow: 0 2px 8px rgba(255, 102, 51, 0.3);
+}
+
+.view-toggle__button.active .view-toggle__icon {
+  color: white;
+}
+
+.view-toggle__button.active .view-toggle__label {
+  color: white;
+}
+
+.view-toggle__icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--duration-fast) ease;
+}
+
+.view-toggle__icon svg {
+  width: 16px;
+  height: 16px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.view-toggle__label {
+  white-space: nowrap;
+  transition: color var(--duration-fast) ease;
+}
+
+/* ===========================================
+   Notes Mode
+   =========================================== */
+
+.shell--notes-mode {
+  grid-template-columns: 1fr;
+  grid-template-rows: var(--shell-topbar-height) 1fr;
+  grid-template-areas:
+    "topbar"
+    "content";
+}
+
+.shell--notes-mode .nav {
+  display: none;
+}
+
+.content--notes {
+  padding: 0;
+  overflow: hidden;
+}
+
+.notes-view {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.notes-iframe {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: var(--bg);
+}
+
+/* ===========================================
+   Responsive - Tablet
+   =========================================== */
+
 @media (max-width: 1100px) {
   .shell {
     --shell-pad: 12px;
@@ -606,4 +852,80 @@
   .list-item {
     grid-template-columns: 1fr;
   }
+}
+
+/* Activity Status Dropdown */
+.activity-status-wrapper {
+  position: relative;
+}
+
+.activity-status {
+  cursor: pointer;
+  user-select: none;
+}
+
+.activity-chevron {
+  font-size: 8px;
+  margin-left: 4px;
+  opacity: 0.5;
+}
+
+.activity-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 280px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  z-index: 100;
+}
+
+.activity-agent {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  transition: background 0.15s ease;
+}
+
+.activity-agent:hover {
+  background: var(--surface-3);
+}
+
+.activity-agent-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.activity-agent-dot.working {
+  background: #14b8a6;
+  box-shadow: 0 0 6px rgba(20, 184, 166, 0.6);
+  animation: activity-pulse 1s ease-in-out infinite;
+}
+
+.activity-agent-dot.idle {
+  background: #22c55e;
+}
+
+.activity-agent-label {
+  font-weight: 500;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.activity-agent-msg {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }

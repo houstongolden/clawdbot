@@ -14,6 +14,12 @@ import type { createSubsystemLogger } from "../logging/subsystem.js";
 import { handleSlackHttpRequest } from "../slack/http/index.js";
 import { resolveAgentAvatar } from "../agents/identity-avatar.js";
 import { handleControlUiAvatarRequest, handleControlUiHttpRequest } from "./control-ui.js";
+import { handlePairingRequest } from "./pairing-api.js";
+import { handleTaskRequest } from "./task-api.js";
+import { handleSessionSyncRequest } from "./session-sync-api.js";
+import { handleSessionsRequest } from "./sessions-api.js";
+import { handleFilesRequest } from "./files-api.js";
+import { handleConfigApiRequest } from "./config-api.js";
 import {
   extractHookToken,
   getHookChannelError,
@@ -267,6 +273,24 @@ export function createGatewayHttpServer(opts: {
         )
           return;
       }
+      // Myo.ai pairing API (must be before control UI to avoid path collision)
+      if (await handlePairingRequest(req, res)) return;
+
+      // Myo.ai task execution API
+      if (await handleTaskRequest(req, res)) return;
+
+      // Myo.ai session sync API (graceful handoff)
+      if (await handleSessionSyncRequest(req, res)) return;
+
+      // Myo.ai sessions API (Phase 4 - Session Bridge)
+      if (await handleSessionsRequest(req, res)) return;
+
+      // Myo.ai file browser API
+      if (await handleFilesRequest(req, res)) return;
+
+      // Myo.ai config API
+      if (await handleConfigApiRequest(req, res)) return;
+
       if (canvasHost) {
         if (await handleA2uiHttpRequest(req, res)) return;
         if (await canvasHost.handleHttpRequest(req, res)) return;

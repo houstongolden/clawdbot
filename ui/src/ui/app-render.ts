@@ -51,7 +51,9 @@ import {
   rotateDeviceToken,
 } from "./controllers/devices";
 import { renderSkills } from "./views/skills";
-import { renderChatControls, renderTab, renderThemeToggle } from "./app-render.helpers";
+import { renderTasks, type Task, type ActiveExecution } from "./views/tasks";
+import { renderNotes } from "./views/notes";
+import { renderChatControls, renderTab, renderThemeToggle, renderViewToggle } from "./app-render.helpers";
 import { loadChannels } from "./controllers/channels";
 import { loadPresence } from "./controllers/presence";
 import { deleteSession, loadSessions, patchSession } from "./controllers/sessions";
@@ -64,6 +66,8 @@ import {
   type SkillMessage,
 } from "./controllers/skills";
 import { loadNodes } from "./controllers/nodes";
+import { loadTasks, claimTask, viewTaskResult } from "./controllers/tasks";
+import { syncSession, handoffToCloud } from "./controllers/handoff";
 import { loadChatHistory } from "./controllers/chat";
 import {
   applyConfig,
@@ -101,6 +105,132 @@ function resolveAssistantAvatarUrl(state: AppViewState): string | undefined {
   return identity?.avatarUrl;
 }
 
+/**
+ * Active agent info for status display
+ */
+interface ActiveAgent {
+  id: string;
+  label: string;
+  status: string;
+  lastMessage?: string;
+}
+
+/**
+ * Get activity state from app state with detailed agent info
+ */
+function getActivityState(state: AppViewState): {
+  status: "working" | "idle" | "offline";
+  activeSessions: number;
+  label: string;
+  agents: ActiveAgent[];
+} {
+  if (!state.connected) {
+    return { status: "offline", activeSessions: 0, label: "Offline", agents: [] };
+  }
+  
+  // Check if there are active tool streams (indicates working)
+  const hasActiveStream = state.toolStream && state.toolStream.length > 0;
+  
+  // Check active sessions from sessions result
+  const sessions = state.sessionsResult?.sessions ?? [];
+  const now = Date.now();
+  
+  // Get active agents (updated in last 5 minutes for visibility)
+  const activeAgents: ActiveAgent[] = sessions
+    .filter(s => {
+      const updatedAt = s.updatedAt ?? 0;
+      return now - updatedAt < 300000; // Active in last 5 min
+    })
+    .map(s => {
+      const isSubagent = s.key?.includes("subagent");
+      const label = (s as any).label || (isSubagent ? s.key?.split(":").pop()?.slice(0,8) : "main");
+      const timeSinceUpdate = now - (s.updatedAt ?? 0);
+      const isWorking = timeSinceUpdate < 30000; // Updated in last 30s = working
+      return {
+        id: s.key || "unknown",
+        label: label || "agent",
+        status: isWorking ? "working" : "idle",
+        lastMessage: undefined, // Will add later
+      };
+    })
+    .slice(0, 8); // Max 8 agents shown
+  
+  // Check if chat is generating
+  const isGenerating = state.chatGenerating === true;
+  const workingCount = activeAgents.filter(a => a.status === "working").length;
+  
+  if (isGenerating || hasActiveStream || workingCount > 0) {
+    const count = Math.max(1, workingCount);
+    return { 
+      status: "working", 
+      activeSessions: count,
+      label: count > 1 ? `${count} agents` : "Working",
+      agents: activeAgents,
+    };
+  }
+  
+  return { 
+    status: "idle", 
+    activeSessions: 0,
+    label: "Ready",
+    agents: activeAgents,
+  };
+}
+
+/**
+ * Get CSS class for logo animation based on activity
+ */
+function getLogoActivityClass(state: AppViewState): string {
+  const activity = getActivityState(state);
+  return activity.status;
+}
+
+/**
+ * Render the activity status indicator with agent dropdown
+ */
+function renderActivityStatus(state: AppViewState) {
+  const activity = getActivityState(state);
+  const showDropdown = state.settings.showActivityDropdown ?? false;
+  
+  return html`
+    <div class="activity-status-wrapper">
+      <button 
+        class="activity-status ${activity.status}"
+        @click=${() => state.applySettings({
+          ...state.settings,
+          showActivityDropdown: !showDropdown,
+        })}
+        title="Click to see agent details"
+      >
+        <span class="activity-indicator ${activity.status}"></span>
+        <span class="activity-label">${activity.label}</span>
+        ${activity.activeSessions > 1 
+          ? html`<span class="activity-count">${activity.activeSessions}</span>` 
+          : nothing}
+        <span class="activity-chevron">${showDropdown ? "▲" : "▼"}</span>
+      </button>
+      ${showDropdown ? html`
+        <div class="activity-dropdown">
+          ${activity.agents.length > 0 ? activity.agents.map(agent => html`
+            <div class="activity-agent ${agent.status}">
+              <span class="activity-agent-dot ${agent.status}"></span>
+              <span class="activity-agent-label">${agent.label}</span>
+              ${agent.lastMessage ? html`
+                <span class="activity-agent-msg">${agent.lastMessage}...</span>
+              ` : nothing}
+            </div>
+          `) : html`
+            <div class="activity-agent idle">
+              <span class="activity-agent-dot idle"></span>
+              <span class="activity-agent-label">No active agents</span>
+            </div>
+          `}
+        </div>
+      ` : nothing}
+    </div>
+  `;
+}
+
 export function renderApp(state: AppViewState) {
   const presenceCount = state.presenceEntries.length;
   const sessionsCount = state.sessionsResult?.count ?? null;
@@ -111,42 +241,49 @@ export function renderApp(state: AppViewState) {
   const showThinking = state.onboarding ? false : state.settings.chatShowThinking;
   const assistantAvatarUrl = resolveAssistantAvatarUrl(state);
   const chatAvatarUrl = state.chatAvatarUrl ?? assistantAvatarUrl ?? null;
+  const isNotesMode = state.settings.viewMode === "notes";
+
+  // Second Brain URL - served from Next.js dev or static build
+  const secondBrainUrl = "http://localhost:3001";
 
   return html`
-    <div class="shell ${isChat ? "shell--chat" : ""} ${chatFocus ? "shell--chat-focus" : ""} ${state.settings.navCollapsed ? "shell--nav-collapsed" : ""} ${state.onboarding ? "shell--onboarding" : ""}">
+    <div class="shell ${isChat ? "shell--chat" : ""} ${chatFocus ? "shell--chat-focus" : ""} ${state.settings.navCollapsed ? "shell--nav-collapsed" : ""} ${state.onboarding ? "shell--onboarding" : ""} ${isNotesMode ? "shell--notes-mode" : ""}"">
       <header class="topbar">
         <div class="topbar-left">
-          <button
-            class="nav-collapse-toggle"
-            @click=${() =>
-              state.applySettings({
-                ...state.settings,
-                navCollapsed: !state.settings.navCollapsed,
-              })}
-            title="${state.settings.navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
-            aria-label="${state.settings.navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
-          >
-            <span class="nav-collapse-toggle__icon">${icons.menu}</span>
-          </button>
+          ${!isNotesMode ? html`
+            <button
+              class="nav-collapse-toggle"
+              @click=${() =>
+                state.applySettings({
+                  ...state.settings,
+                  navCollapsed: !state.settings.navCollapsed,
+                })}
+              title="${state.settings.navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
+              aria-label="${state.settings.navCollapsed ? "Expand sidebar" : "Collapse sidebar"}"
+            >
+              <span class="nav-collapse-toggle__icon">${icons.menu}</span>
+            </button>
+          ` : nothing}
           <div class="brand">
-            <div class="brand-logo">
+            <div class="brand-logo ${getLogoActivityClass(state)}">
               ${icons.myoLogo}
             </div>
             <div class="brand-text">
-              <div class="brand-title">MYO</div>
-              <div class="brand-sub">Control Panel</div>
+              <div class="brand-title">Myo</div>
             </div>
           </div>
+          ${renderViewToggle(state)}
         </div>
         <div class="topbar-status">
-          <div class="pill">
-            <span class="statusDot ${state.connected ? "ok" : ""}"></span>
-            <span>Health</span>
-            <span class="mono">${state.connected ? "OK" : "Offline"}</span>
-          </div>
+          ${!isNotesMode ? renderActivityStatus(state) : nothing}
           ${renderThemeToggle(state)}
         </div>
       </header>
+      ${isNotesMode ? html`
+        <main class="content content--notes">
+          ${renderNotes({ secondBrainUrl })}
+        </main>
+      ` : html`
       <aside class="nav ${state.settings.navCollapsed ? "nav--collapsed" : ""}">
         ${TAB_GROUPS.map((group) => {
           const isGroupCollapsed = state.settings.navGroupsCollapsed[group.label] ?? false;
@@ -218,6 +355,8 @@ export function renderApp(state: AppViewState) {
               cronEnabled: state.cronStatus?.enabled ?? null,
               cronNext,
               lastChannelsRefresh: state.channelsLastSuccess,
+              sessionSyncing: state.sessionSyncing,
+              lastSessionSyncAt: state.lastSessionSyncAt,
               onSettingsChange: (next) => state.applySettings(next),
               onPasswordChange: (next) => (state.password = next),
               onSessionKeyChange: (next) => {
@@ -233,6 +372,8 @@ export function renderApp(state: AppViewState) {
               },
               onConnect: () => state.connect(),
               onRefresh: () => state.loadOverview(),
+              onSyncSession: () => syncSession(state),
+              onHandoffToCloud: () => handoffToCloud(state),
             })
           : nothing}
 
@@ -327,6 +468,19 @@ export function renderApp(state: AppViewState) {
               onRun: (job) => runCronJob(state, job),
               onRemove: (job) => removeCronJob(state, job),
               onLoadRuns: (jobId) => loadCronRuns(state, jobId),
+            })
+          : nothing}
+
+        ${state.tab === "tasks"
+          ? renderTasks({
+              tasks: state.tasks || [],
+              activeExecutions: state.activeExecutions || [],
+              loading: state.tasksLoading || false,
+              error: state.tasksError || null,
+              gatewayConnected: state.connected || false,
+              onRefresh: () => loadTasks(state),
+              onClaimTask: (taskId) => claimTask(state, taskId),
+              onViewResult: (taskId) => viewTaskResult(state, taskId),
             })
           : nothing}
 
@@ -578,6 +732,7 @@ export function renderApp(state: AppViewState) {
             })
           : nothing}
       </main>
+      `}
       ${renderExecApprovalPrompt(state)}
       ${renderGatewayUrlConfirmation(state)}
     </div>
