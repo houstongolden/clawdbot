@@ -11,6 +11,8 @@
     "./cli-entry": "./openclaw.mjs"
   },
   "bin": {
+    "myobot": "./openclaw.mjs",
+    "myo": "./openclaw.mjs",
     "openclaw": "./openclaw.mjs"
   },
   "files": [

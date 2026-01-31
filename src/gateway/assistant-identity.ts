@@ -9,8 +9,8 @@ const MAX_ASSISTANT_AVATAR = 200;
 
 export const DEFAULT_ASSISTANT_IDENTITY: AssistantIdentity = {
   agentId: "main",
-  name: "Assistant",
-  avatar: "A",
+  name: "Myo",
+  avatar: "M",
 };
 
 export type AssistantIdentity = {

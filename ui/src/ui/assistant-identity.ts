@@ -1,8 +1,8 @@
 const MAX_ASSISTANT_NAME = 50;
 const MAX_ASSISTANT_AVATAR = 200;
 
-export const DEFAULT_ASSISTANT_NAME = "Assistant";
-export const DEFAULT_ASSISTANT_AVATAR = "A";
+export const DEFAULT_ASSISTANT_NAME = "Myo";
+export const DEFAULT_ASSISTANT_AVATAR = "M";
 
 export type AssistantIdentity = {
   agentId?: string | null;
@@ -12,6 +12,9 @@ export type AssistantIdentity = {
 
 declare global {
   interface Window {
+    // Support both Myo and OpenClaw naming for compatibility
+    __MYO_ASSISTANT_NAME__?: string;
+    __MYO_ASSISTANT_AVATAR__?: string;
     __OPENCLAW_ASSISTANT_NAME__?: string;
     __OPENCLAW_ASSISTANT_AVATAR__?: string;
   }
@@ -42,8 +45,9 @@ export function resolveInjectedAssistantIdentity(): AssistantIdentity {
   if (typeof window === "undefined") {
     return normalizeAssistantIdentity({});
   }
+  // Support both Myo and OpenClaw naming
   return normalizeAssistantIdentity({
-    name: window.__OPENCLAW_ASSISTANT_NAME__,
-    avatar: window.__OPENCLAW_ASSISTANT_AVATAR__,
+    name: window.__MYO_ASSISTANT_NAME__ ?? window.__OPENCLAW_ASSISTANT_NAME__,
+    avatar: window.__MYO_ASSISTANT_AVATAR__ ?? window.__OPENCLAW_ASSISTANT_AVATAR__,
   });
 }
