@@ -12,6 +12,9 @@
  */
 
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 // In-memory store for pending pairing requests (in production, use Redis or similar)
@@ -28,7 +31,7 @@ interface PendingPairing {
 const pendingPairings = new Map<string, PendingPairing>();
 const PAIRING_CODE_EXPIRY_MS = 5 * 60 * 1000; // 5 minutes
 
-// Approved tokens (in production, persist these)
+// Approved tokens - persisted to disk
 interface ApprovedToken {
   token: string;
   createdAt: number;
@@ -40,6 +43,98 @@ interface ApprovedToken {
 }
 
 const approvedTokens = new Map<string, ApprovedToken>();
+
+// ============================================================================
+// Token Persistence (B06 Fix)
+// ============================================================================
+
+const MYO_TOKENS_FILENAME = "myo-tokens.json";
+
+/**
+ * Resolve the OpenClaw state directory
+ */
+function resolveOpenClawStateDir(): string {
+  const override = process.env.OPENCLAW_STATE_DIR?.trim();
+  if (override) {
+    if (override.startsWith("~")) {
+      return path.resolve(override.replace(/^~(?=$|[\\/])/, os.homedir()));
+    }
+    return path.resolve(override);
+  }
+  // Check for existing directories
+  const newDir = path.join(os.homedir(), ".openclaw");
+  const legacyDirs = [".clawdbot", ".moltbot", ".moldbot"].map((d) => path.join(os.homedir(), d));
+
+  if (fs.existsSync(newDir)) return newDir;
+  const existingLegacy = legacyDirs.find((dir) => {
+    try {
+      return fs.existsSync(dir);
+    } catch {
+      return false;
+    }
+  });
+  if (existingLegacy) return existingLegacy;
+  return newDir;
+}
+
+/**
+ * Get the path to the tokens file
+ */
+function getTokensFilePath(): string {
+  return path.join(resolveOpenClawStateDir(), MYO_TOKENS_FILENAME);
+}
+
+/**
+ * Load tokens from disk
+ */
+function loadTokensFromDisk(): void {
+  try {
+    const filePath = getTokensFilePath();
+    if (!fs.existsSync(filePath)) {
+      console.log("[pairing-api] No persisted tokens file found");
+      return;
+    }
+
+    const data = fs.readFileSync(filePath, "utf-8");
+    const tokens = JSON.parse(data) as ApprovedToken[];
+
+    approvedTokens.clear();
+    for (const token of tokens) {
+      if (token.token && typeof token.token === "string") {
+        approvedTokens.set(token.token, token);
+      }
+    }
+
+    console.log(`[pairing-api] Loaded ${approvedTokens.size} tokens from disk`);
+  } catch (err) {
+    console.error("[pairing-api] Failed to load tokens from disk:", err);
+  }
+}
+
+/**
+ * Save tokens to disk
+ */
+function saveTokensToDisk(): void {
+  try {
+    const filePath = getTokensFilePath();
+    const dirPath = path.dirname(filePath);
+
+    // Ensure directory exists
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true });
+    }
+
+    const tokens = Array.from(approvedTokens.values());
+    fs.writeFileSync(filePath, JSON.stringify(tokens, null, 2), "utf-8");
+
+    console.log(`[pairing-api] Saved ${tokens.length} tokens to disk`);
+  } catch (err) {
+    console.error("[pairing-api] Failed to save tokens to disk:", err);
+  }
+}
+
+// Load tokens on module initialization
+loadTokensFromDisk();
 
 /**
  * Generate a cryptographically secure pairing code
@@ -118,6 +213,9 @@ export function exchangePairingCode(
   // Remove the used pairing code
   pendingPairings.delete(normalizedCode);
 
+  // Persist tokens to disk (B06 fix)
+  saveTokensToDisk();
+
   return { success: true, token };
 }
 
@@ -134,10 +232,29 @@ export function validateToken(token: string): boolean {
 }
 
 /**
+ * Reload tokens from disk (for testing/recovery)
+ */
+export function reloadTokensFromDisk(): void {
+  loadTokensFromDisk();
+}
+
+/**
+ * Get token count (for diagnostics)
+ */
+export function getApprovedTokenCount(): number {
+  return approvedTokens.size;
+}
+
+/**
  * Revoke an auth token
  */
 export function revokeToken(token: string): boolean {
-  return approvedTokens.delete(token);
+  const deleted = approvedTokens.delete(token);
+  if (deleted) {
+    // Persist tokens to disk (B06 fix)
+    saveTokensToDisk();
+  }
+  return deleted;
 }
 
 /**
@@ -281,6 +398,8 @@ export default {
   exchangePairingCode,
   validateToken,
   revokeToken,
+  reloadTokensFromDisk,
+  getApprovedTokenCount,
   listApprovedTokens,
   handlePairingRequest,
 };

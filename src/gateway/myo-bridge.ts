@@ -11,6 +11,7 @@
 
 import type { IncomingMessage } from "node:http";
 import type { WebSocket, WebSocketServer } from "ws";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -25,6 +26,7 @@ import {
 } from "./session-sync-api.js";
 import { loadSessionStore, resolveStorePath } from "../config/sessions.js";
 import { loadConfig } from "../config/io.js";
+import { callGateway } from "./call.js";
 
 // ============================================================================
 // Types (mirroring Myo.ai protocol.ts)
@@ -214,47 +216,91 @@ async function handleRequest(
       }
 
       case "task.execute": {
-        const { taskId, title, description, stream } = params as {
+        const { taskId, title, description, stream, model, timeout } = params as {
           taskId: string;
           title: string;
           description: string;
           stream?: boolean;
+          model?: string;
+          timeout?: number;
         };
 
-        // TODO: Implement actual task execution
-        // For now, simulate with progress events
+        // B05 Fix: Wire real task execution using the agent system
+        const sessionKey = `myo:task:${taskId}`;
+        const startTime = Date.now();
+
+        // Send initial response
         sendResponse(ws, msg.id, {
-          sessionKey: `task:${taskId}`,
+          sessionKey,
           streaming: stream ?? true,
         });
 
-        if (stream) {
-          // Simulate progress events
-          setTimeout(() => {
+        // Execute the task in the background
+        (async () => {
+          try {
+            // Send starting event
             sendEvent(ws, "task.progress", {
               taskId,
               content: `Starting task: ${title}...`,
               progress: 10,
             });
-          }, 500);
 
-          setTimeout(() => {
+            // Build the task prompt
+            const taskPrompt = `# Task: ${title}\n\n${description}`;
+
+            // Call the gateway agent method for real LLM execution
+            const response = (await callGateway({
+              method: "agent",
+              params: {
+                message: taskPrompt,
+                sessionKey,
+                deliver: false, // Don't deliver to any channel, just return result
+                label: title,
+                timeout: timeout ?? 300, // Default 5 minute timeout
+                ...(model ? { model } : {}),
+              },
+              timeoutMs: (timeout ?? 300) * 1000 + 10000, // Add buffer to gateway timeout
+            })) as {
+              runId?: string;
+              result?: string;
+              error?: string;
+              assistantText?: string;
+              toolCalls?: Array<{ name: string; result?: string }>;
+            };
+
+            // Send progress update
             sendEvent(ws, "task.progress", {
               taskId,
-              content: `Processing: ${description}`,
-              progress: 50,
+              content: "Processing response...",
+              progress: 80,
             });
-          }, 1500);
 
-          setTimeout(() => {
+            // Extract result
+            const result = response?.assistantText || response?.result || "Task completed";
+            const durationMs = Date.now() - startTime;
+
+            // Send completion event
             sendEvent(ws, "task.complete", {
               taskId,
-              result: `Task completed: ${title}`,
+              result,
+              runId: response?.runId,
+              toolCalls: response?.toolCalls?.map((tc) => tc.name),
               artifacts: [],
-              durationMs: 2000,
+              durationMs,
             });
-          }, 2500);
-        }
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`[myo-bridge] Task ${taskId} failed:`, errorMessage);
+
+            sendEvent(ws, "task.error", {
+              taskId,
+              error: errorMessage,
+              retryable: !errorMessage.includes("auth") && !errorMessage.includes("forbidden"),
+              durationMs: Date.now() - startTime,
+            });
+          }
+        })();
+
         break;
       }
 
