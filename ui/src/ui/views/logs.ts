@@ -45,85 +45,103 @@ export function renderLogs(props: LogsProps) {
     return matchesFilter(entry, needle);
   });
   const exportLabel = needle || levelFiltered ? "filtered" : "visible";
+  const totalCount = props.entries.length;
+  const filteredCount = filtered.length;
+  const isFiltering = needle || levelFiltered;
 
   return html`
-    <section class="card">
-      <div class="row" style="justify-content: space-between;">
-        <div>
-          <div class="card-title">Logs</div>
-          <div class="card-sub">Gateway file logs (JSONL).</div>
+    <section class="card logs-card">
+      <!-- Header with streaming indicator -->
+      <div class="logs-header">
+        <div class="logs-header__info">
+          <div class="card-title" style="display: flex; align-items: center; gap: 10px;">
+            Logs
+            ${props.autoFollow ? html`
+              <span class="logs-live-indicator">
+                <span class="logs-live-dot"></span>
+                Live
+              </span>
+            ` : html`
+              <span class="logs-paused-indicator">Paused</span>
+            `}
+          </div>
+          <div class="card-sub">
+            ${isFiltering 
+              ? `Showing ${filteredCount} of ${totalCount} entries`
+              : `${totalCount} entries`}
+            ${props.file ? ` · ${props.file}` : ""}
+          </div>
         </div>
-        <div class="row" style="gap: 8px;">
-          <button class="btn" ?disabled=${props.loading} @click=${props.onRefresh}>
-            ${props.loading ? "Loading…" : "Refresh"}
+        <div class="logs-header__actions">
+          <button 
+            class="btn btn-sm ${props.autoFollow ? "" : "btn-primary"}" 
+            @click=${() => props.onToggleAutoFollow(!props.autoFollow)}
+            title="${props.autoFollow ? "Pause auto-follow" : "Resume auto-follow"}"
+          >
+            ${props.autoFollow ? "⏸ Pause" : "▶ Resume"}
+          </button>
+          <button class="btn btn-sm" ?disabled=${props.loading} @click=${props.onRefresh}>
+            ${props.loading ? "…" : "↻"}
           </button>
           <button
-            class="btn"
+            class="btn btn-sm"
             ?disabled=${filtered.length === 0}
             @click=${() => props.onExport(filtered.map((entry) => entry.raw), exportLabel)}
+            title="Export logs"
           >
-            Export ${exportLabel}
+            ↓ Export
           </button>
         </div>
       </div>
 
-      <div class="filters" style="margin-top: 14px;">
-        <label class="field" style="min-width: 220px;">
-          <span>Filter</span>
+      <!-- Filters Row -->
+      <div class="logs-filters">
+        <div class="logs-search">
           <input
+            type="text"
+            class="logs-search__input"
             .value=${props.filterText}
             @input=${(e: Event) =>
               props.onFilterTextChange((e.target as HTMLInputElement).value)}
-            placeholder="Search logs"
+            placeholder="🔍 Search logs..."
           />
-        </label>
-        <label class="field checkbox">
-          <span>Auto-follow</span>
-          <input
-            type="checkbox"
-            .checked=${props.autoFollow}
-            @change=${(e: Event) =>
-              props.onToggleAutoFollow((e.target as HTMLInputElement).checked)}
-          />
-        </label>
+        </div>
+        <div class="logs-level-filters">
+          ${LEVELS.map(
+            (level) => html`
+              <label class="logs-level-chip ${level} ${props.levelFilters[level] ? "active" : ""}">
+                <input
+                  type="checkbox"
+                  .checked=${props.levelFilters[level]}
+                  @change=${(e: Event) =>
+                    props.onLevelToggle(level, (e.target as HTMLInputElement).checked)}
+                />
+                <span>${level}</span>
+              </label>
+            `,
+          )}
+        </div>
       </div>
 
-      <div class="chip-row" style="margin-top: 12px;">
-        ${LEVELS.map(
-          (level) => html`
-            <label class="chip log-chip ${level}">
-              <input
-                type="checkbox"
-                .checked=${props.levelFilters[level]}
-                @change=${(e: Event) =>
-                  props.onLevelToggle(level, (e.target as HTMLInputElement).checked)}
-              />
-              <span>${level}</span>
-            </label>
-          `,
-        )}
-      </div>
-
-      ${props.file
-        ? html`<div class="muted" style="margin-top: 10px;">File: ${props.file}</div>`
-        : nothing}
       ${props.truncated
-        ? html`<div class="callout" style="margin-top: 10px;">
-            Log output truncated; showing latest chunk.
-          </div>`
+        ? html`<div class="logs-notice">Log output truncated; showing latest chunk.</div>`
         : nothing}
       ${props.error
-        ? html`<div class="callout danger" style="margin-top: 10px;">${props.error}</div>`
+        ? html`<div class="logs-notice logs-notice--error">${props.error}</div>`
         : nothing}
 
-      <div class="log-stream" style="margin-top: 12px;" @scroll=${props.onScroll}>
+      <!-- Log Stream -->
+      <div class="log-stream ${props.autoFollow ? "log-stream--live" : ""}" @scroll=${props.onScroll}>
         ${filtered.length === 0
-          ? html`<div class="muted" style="padding: 12px;">No log entries.</div>`
+          ? html`<div class="logs-empty">
+              <div class="logs-empty__icon">📋</div>
+              <div class="logs-empty__text">No log entries${isFiltering ? " match your filters" : ""}</div>
+            </div>`
           : filtered.map(
               (entry) => html`
-                <div class="log-row">
+                <div class="log-row log-row--${entry.level ?? "info"}">
                   <div class="log-time mono">${formatTime(entry.time)}</div>
-                  <div class="log-level ${entry.level ?? ""}">${entry.level ?? ""}</div>
+                  <div class="log-level log-level--${entry.level ?? "info"}">${entry.level ?? ""}</div>
                   <div class="log-subsystem mono">${entry.subsystem ?? ""}</div>
                   <div class="log-message mono">${entry.message ?? entry.raw}</div>
                 </div>

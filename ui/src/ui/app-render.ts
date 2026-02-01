@@ -355,6 +355,7 @@ export function renderApp(state: AppViewState) {
               cronEnabled: state.cronStatus?.enabled ?? null,
               cronNext,
               lastChannelsRefresh: state.channelsLastSuccess,
+              recentSessions: state.sessionsResult?.sessions?.slice(0, 5) ?? [],
               sessionSyncing: state.sessionSyncing,
               lastSessionSyncAt: state.lastSessionSyncAt,
               onSettingsChange: (next) => state.applySettings(next),
@@ -374,6 +375,8 @@ export function renderApp(state: AppViewState) {
               onRefresh: () => state.loadOverview(),
               onSyncSession: () => syncSession(state),
               onHandoffToCloud: () => handoffToCloud(state),
+              onNavigateToSessions: () => state.setTab("sessions"),
+              onNavigateToLogs: () => state.setTab("logs"),
             })
           : nothing}
 

@@ -1,9 +1,10 @@
-import { html } from "lit";
+import { html, nothing } from "lit";
 
 import type { GatewayHelloOk } from "../gateway";
 import { formatAgo, formatDurationMs } from "../format";
 import { formatNextRun } from "../presenter";
 import type { UiSettings } from "../storage";
+import type { GatewaySessionRow, LogEntry } from "../types";
 
 export type OverviewProps = {
   connected: boolean;
@@ -16,6 +17,10 @@ export type OverviewProps = {
   cronEnabled: boolean | null;
   cronNext: number | null;
   lastChannelsRefresh: number | null;
+  // Quick session preview (optional)
+  recentSessions?: GatewaySessionRow[];
+  // Quick log preview (optional)
+  recentLogs?: LogEntry[];
   // Cloud sync / handoff
   sessionSyncing?: boolean;
   lastSessionSyncAt?: string | null;
@@ -27,6 +32,8 @@ export type OverviewProps = {
   onRefresh: () => void;
   onSyncSession?: () => void;
   onHandoffToCloud?: () => void;
+  onNavigateToSessions?: () => void;
+  onNavigateToLogs?: () => void;
 };
 
 export function renderOverview(props: OverviewProps) {
@@ -122,116 +129,164 @@ export function renderOverview(props: OverviewProps) {
     `;
   })();
 
+  // Quick session status helper
+  const getSessionStatus = (session: GatewaySessionRow) => {
+    if (!session.updatedAt) return { status: "unknown", label: "Unknown", class: "muted" };
+    const now = Date.now();
+    const ageMs = now - session.updatedAt;
+    if (ageMs < 60000) return { status: "active", label: "Active", class: "ok" }; // < 1 min
+    if (ageMs < 300000) return { status: "idle", label: "Idle", class: "warn" }; // < 5 min
+    return { status: "inactive", label: "Inactive", class: "muted" };
+  };
+
+  // Get recent sessions (max 5)
+  const recentSessions = (props.recentSessions ?? []).slice(0, 5);
+
   return html`
-    <section class="grid grid-cols-2">
-      <div class="card">
-        <div class="card-title">Gateway Access</div>
-        <div class="card-sub">Where the dashboard connects and how it authenticates.</div>
-        <div class="form-grid" style="margin-top: 16px;">
-          <label class="field">
-            <span>WebSocket URL</span>
-            <input
-              .value=${props.settings.gatewayUrl}
-              @input=${(e: Event) => {
-                const v = (e.target as HTMLInputElement).value;
-                props.onSettingsChange({ ...props.settings, gatewayUrl: v });
-              }}
-              placeholder="ws://100.x.y.z:18789"
-            />
-          </label>
-          <label class="field">
-            <span>Gateway Token</span>
-            <input
-              .value=${props.settings.token}
-              @input=${(e: Event) => {
-                const v = (e.target as HTMLInputElement).value;
-                props.onSettingsChange({ ...props.settings, token: v });
-              }}
-              placeholder="OPENCLAW_GATEWAY_TOKEN"
-            />
-          </label>
-          <label class="field">
-            <span>Password (not stored)</span>
-            <input
-              type="password"
-              .value=${props.password}
-              @input=${(e: Event) => {
-                const v = (e.target as HTMLInputElement).value;
-                props.onPasswordChange(v);
-              }}
-              placeholder="system or shared password"
-            />
-          </label>
-          <label class="field">
-            <span>Default Session Key</span>
-            <input
-              .value=${props.settings.sessionKey}
-              @input=${(e: Event) => {
-                const v = (e.target as HTMLInputElement).value;
-                props.onSessionKeyChange(v);
-              }}
-            />
-          </label>
-        </div>
-        <div class="row" style="margin-top: 14px;">
-          <button class="btn" @click=${() => props.onConnect()}>Connect</button>
-          <button class="btn" @click=${() => props.onRefresh()}>Refresh</button>
-          <span class="muted">Click Connect to apply connection changes.</span>
+    <!-- Status Hero Card -->
+    <section class="status-hero ${props.connected ? "status-hero--connected" : "status-hero--disconnected"}">
+      <div class="status-hero__indicator">
+        <span class="status-hero__dot ${props.connected ? "status-hero__dot--ok" : "status-hero__dot--error"}"></span>
+      </div>
+      <div class="status-hero__content">
+        <div class="status-hero__title">${props.connected ? "Gateway Running" : "Gateway Offline"}</div>
+        <div class="status-hero__subtitle">
+          ${props.connected 
+            ? `Uptime: ${uptime} · Tick: ${tick}` 
+            : props.lastError ?? "Not connected to gateway"}
         </div>
       </div>
-
-      <div class="card">
-        <div class="card-title">Snapshot</div>
-        <div class="card-sub">Latest gateway handshake information.</div>
-        <div class="stat-grid" style="margin-top: 16px;">
-          <div class="stat">
-            <div class="stat-label">Status</div>
-            <div class="stat-value ${props.connected ? "ok" : "warn"}">
-              ${props.connected ? "Connected" : "Disconnected"}
-            </div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Uptime</div>
-            <div class="stat-value">${uptime}</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Tick Interval</div>
-            <div class="stat-value">${tick}</div>
-          </div>
-          <div class="stat">
-            <div class="stat-label">Last Channels Refresh</div>
-            <div class="stat-value">
-              ${props.lastChannelsRefresh
-                ? formatAgo(props.lastChannelsRefresh)
-                : "n/a"}
-            </div>
-          </div>
-        </div>
-        ${props.lastError
-          ? html`<div class="callout danger" style="margin-top: 14px;">
-              <div>${props.lastError}</div>
-              ${authHint ?? ""}
-              ${insecureContextHint ?? ""}
-            </div>`
-          : html`<div class="callout" style="margin-top: 14px;">
-              Use Channels to link WhatsApp, Telegram, Discord, Signal, or iMessage.
-            </div>`}
+      <div class="status-hero__actions">
+        <button class="btn btn-sm" @click=${() => props.onRefresh()}>Refresh</button>
+        ${!props.connected ? html`<button class="btn btn-sm btn-primary" @click=${() => props.onConnect()}>Connect</button>` : nothing}
       </div>
     </section>
 
+    <!-- Health Metrics Grid -->
+    <section class="grid grid-cols-4" style="margin-top: 18px;">
+      <div class="card stat-card stat-card--compact">
+        <div class="stat-label">Status</div>
+        <div class="stat-value ${props.connected ? "ok" : "warn"}" style="font-size: 20px;">
+          ${props.connected ? "● Online" : "○ Offline"}
+        </div>
+      </div>
+      <div class="card stat-card stat-card--compact">
+        <div class="stat-label">Sessions</div>
+        <div class="stat-value" style="font-size: 20px;">${props.sessionsCount ?? "—"}</div>
+      </div>
+      <div class="card stat-card stat-card--compact">
+        <div class="stat-label">Uptime</div>
+        <div class="stat-value" style="font-size: 20px;">${uptime}</div>
+      </div>
+      <div class="card stat-card stat-card--compact">
+        <div class="stat-label">Instances</div>
+        <div class="stat-value" style="font-size: 20px;">${props.presenceCount}</div>
+      </div>
+    </section>
+
+    <!-- Quick Session Preview -->
+    ${recentSessions.length > 0 ? html`
+    <section class="card" style="margin-top: 18px;">
+      <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <div class="card-title">Recent Sessions</div>
+          <div class="card-sub">Active and recent session activity</div>
+        </div>
+        ${props.onNavigateToSessions ? html`
+          <button class="btn btn-sm" @click=${props.onNavigateToSessions}>View All →</button>
+        ` : nothing}
+      </div>
+      <div class="session-list" style="margin-top: 14px;">
+        ${recentSessions.map(session => {
+          const status = getSessionStatus(session);
+          const displayName = session.displayName ?? session.label ?? session.key;
+          const timeAgo = session.updatedAt ? formatAgo(session.updatedAt) : "n/a";
+          return html`
+            <div class="session-item">
+              <div class="session-item__indicator">
+                <span class="session-dot session-dot--${status.status}"></span>
+              </div>
+              <div class="session-item__info">
+                <div class="session-item__name mono">${displayName}</div>
+                <div class="session-item__meta muted">${session.kind} · ${timeAgo}</div>
+              </div>
+              <div class="session-item__status ${status.class}">${status.label}</div>
+            </div>
+          `;
+        })}
+      </div>
+    </section>
+    ` : nothing}
+
+    <!-- Connection Settings (collapsible) -->
+    <details class="card" style="margin-top: 18px;">
+      <summary class="card-title" style="cursor: pointer; user-select: none;">
+        Gateway Connection Settings
+      </summary>
+      <div class="card-sub" style="margin-top: 8px;">Where the dashboard connects and how it authenticates.</div>
+      <div class="form-grid" style="margin-top: 16px;">
+        <label class="field">
+          <span>WebSocket URL</span>
+          <input
+            .value=${props.settings.gatewayUrl}
+            @input=${(e: Event) => {
+              const v = (e.target as HTMLInputElement).value;
+              props.onSettingsChange({ ...props.settings, gatewayUrl: v });
+            }}
+            placeholder="ws://100.x.y.z:18789"
+          />
+        </label>
+        <label class="field">
+          <span>Gateway Token</span>
+          <input
+            .value=${props.settings.token}
+            @input=${(e: Event) => {
+              const v = (e.target as HTMLInputElement).value;
+              props.onSettingsChange({ ...props.settings, token: v });
+            }}
+            placeholder="OPENCLAW_GATEWAY_TOKEN"
+          />
+        </label>
+        <label class="field">
+          <span>Password (not stored)</span>
+          <input
+            type="password"
+            .value=${props.password}
+            @input=${(e: Event) => {
+              const v = (e.target as HTMLInputElement).value;
+              props.onPasswordChange(v);
+            }}
+            placeholder="system or shared password"
+          />
+        </label>
+        <label class="field">
+          <span>Default Session Key</span>
+          <input
+            .value=${props.settings.sessionKey}
+            @input=${(e: Event) => {
+              const v = (e.target as HTMLInputElement).value;
+              props.onSessionKeyChange(v);
+            }}
+          />
+        </label>
+      </div>
+      <div class="row" style="margin-top: 14px;">
+        <button class="btn" @click=${() => props.onConnect()}>Connect</button>
+        <span class="muted">Click Connect to apply connection changes.</span>
+      </div>
+      ${props.lastError && !props.connected
+        ? html`<div class="callout danger" style="margin-top: 14px;">
+            <div>${props.lastError}</div>
+            ${authHint ?? ""}
+            ${insecureContextHint ?? ""}
+          </div>`
+        : nothing}
+    </details>
+
+    <!-- Additional Stats Row -->
     <section class="grid grid-cols-3" style="margin-top: 18px;">
       <div class="card stat-card">
-        <div class="stat-label">Instances</div>
-        <div class="stat-value">${props.presenceCount}</div>
-        <div class="muted">Presence beacons in the last 5 minutes.</div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-label">Sessions</div>
-        <div class="stat-value">${props.sessionsCount ?? "n/a"}</div>
-        <div class="muted">Recent session keys tracked by the gateway.</div>
-      </div>
-      <div class="card stat-card">
-        <div class="stat-label">Cron</div>
+        <div class="stat-label">Cron Jobs</div>
         <div class="stat-value">
           ${props.cronEnabled == null
             ? "n/a"
@@ -240,6 +295,18 @@ export function renderOverview(props: OverviewProps) {
               : "Disabled"}
         </div>
         <div class="muted">Next wake ${formatNextRun(props.cronNext)}</div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-label">Last Channels Refresh</div>
+        <div class="stat-value" style="font-size: 18px;">
+          ${props.lastChannelsRefresh ? formatAgo(props.lastChannelsRefresh) : "n/a"}
+        </div>
+        <div class="muted">Channel status poll time</div>
+      </div>
+      <div class="card stat-card">
+        <div class="stat-label">Tick Interval</div>
+        <div class="stat-value" style="font-size: 18px;">${tick}</div>
+        <div class="muted">Gateway heartbeat frequency</div>
       </div>
     </section>
 

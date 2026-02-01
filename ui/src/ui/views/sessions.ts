@@ -151,6 +151,7 @@ export function renderSessions(props: SessionsProps) {
 
       <div class="table" style="margin-top: 16px;">
         <div class="table-head">
+          <div style="width: 32px;"></div>
           <div>Key</div>
           <div>Label</div>
           <div>Kind</div>
@@ -169,6 +170,15 @@ export function renderSessions(props: SessionsProps) {
       </div>
     </section>
   `;
+}
+
+function getSessionStatusClass(updatedAt: number | null): { dotClass: string; title: string } {
+  if (!updatedAt) return { dotClass: "session-dot--unknown", title: "Unknown" };
+  const now = Date.now();
+  const ageMs = now - updatedAt;
+  if (ageMs < 60000) return { dotClass: "session-dot--active", title: "Active (< 1m)" };
+  if (ageMs < 300000) return { dotClass: "session-dot--idle", title: "Idle (< 5m)" };
+  return { dotClass: "session-dot--inactive", title: "Inactive" };
 }
 
 function renderRow(
@@ -190,9 +200,13 @@ function renderRow(
   const chatUrl = canLink
     ? `${pathForTab("chat", basePath)}?session=${encodeURIComponent(row.key)}`
     : null;
+  const status = getSessionStatusClass(row.updatedAt);
 
   return html`
     <div class="table-row">
+      <div style="width: 32px; display: flex; align-items: center; justify-content: center;">
+        <span class="session-dot ${status.dotClass}" title="${status.title}"></span>
+      </div>
       <div class="mono">${canLink
         ? html`<a href=${chatUrl} class="session-link">${displayName}</a>`
         : displayName}</div>
