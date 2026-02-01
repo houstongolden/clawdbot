@@ -207,6 +207,27 @@ export type GatewayNodesConfig = {
   denyCommands?: string[];
 };
 
+export type GatewayRelayConfig = {
+  /** Enable relay connection to myo.ai cloud (default: false). */
+  enabled?: boolean;
+  /** Automatically connect on gateway start (default: true when enabled). */
+  autoConnect?: boolean;
+  /** Supabase project URL (falls back to MYO_SUPABASE_URL env). */
+  supabaseUrl?: string;
+  /** Supabase anon key (falls back to MYO_SUPABASE_ANON_KEY env). */
+  supabaseAnonKey?: string;
+  /** User ID for channel subscription (from pairing, falls back to MYO_USER_ID env). */
+  userId?: string;
+  /** Gateway ID for identification (auto-generated if not set). */
+  gatewayId?: string;
+  /** Reconnect on disconnect (default: true). */
+  reconnect?: boolean;
+  /** Reconnect delay in ms (default: 5000). */
+  reconnectDelayMs?: number;
+  /** Heartbeat interval in ms (default: 30000). */
+  heartbeatIntervalMs?: number;
+};
+
 export type GatewayConfig = {
   /** Single multiplexed port for Gateway WS + HTTP (default: 18789). */
   port?: number;
@@ -235,6 +256,8 @@ export type GatewayConfig = {
   tls?: GatewayTlsConfig;
   http?: GatewayHttpConfig;
   nodes?: GatewayNodesConfig;
+  /** Myo.ai cloud relay configuration for remote gateway access. */
+  relay?: GatewayRelayConfig;
   /**
    * IPs of trusted reverse proxies (e.g. Traefik, nginx). When a connection
    * arrives from one of these IPs, the Gateway trusts `x-forwarded-for` (or

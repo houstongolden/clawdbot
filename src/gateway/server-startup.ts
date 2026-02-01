@@ -22,6 +22,7 @@ import {
   scheduleRestartSentinelWake,
   shouldWakeFromRestartSentinel,
 } from "./server-restart-sentinel.js";
+import { startRelayClient, stopRelayClient, isRelayEnabled } from "./relay-client.js";
 
 export async function startGatewaySidecars(params: {
   cfg: ReturnType<typeof loadConfig>;
@@ -29,7 +30,7 @@ export async function startGatewaySidecars(params: {
   defaultWorkspaceDir: string;
   deps: CliDeps;
   startChannels: () => Promise<void>;
-  log: { warn: (msg: string) => void };
+  log: { warn: (msg: string) => void; info?: (msg: string) => void };
   logHooks: {
     info: (msg: string) => void;
     warn: (msg: string) => void;
@@ -37,6 +38,11 @@ export async function startGatewaySidecars(params: {
   };
   logChannels: { info: (msg: string) => void; error: (msg: string) => void };
   logBrowser: { error: (msg: string) => void };
+  logRelay?: {
+    info: (msg: string) => void;
+    warn: (msg: string) => void;
+    error: (msg: string) => void;
+  };
 }) {
   // Start OpenClaw browser control server (unless disabled via config).
   let browserControl: Awaited<ReturnType<typeof startBrowserControlServerIfEnabled>> = null;
@@ -156,5 +162,26 @@ export async function startGatewaySidecars(params: {
     }, 750);
   }
 
-  return { browserControl, pluginServices };
+  // Start Myo.ai relay client if configured (gateway.relay.enabled)
+  // This enables cloud access to local gateway features (files, sessions, etc.)
+  let relayConnected = false;
+  const skipRelay = isTruthyEnvValue(process.env.OPENCLAW_SKIP_RELAY);
+  if (!skipRelay && isRelayEnabled()) {
+    try {
+      const relayResult = await startRelayClient();
+      if (relayResult.started) {
+        relayConnected = true;
+        const logInfo = params.logRelay?.info || params.log.info;
+        logInfo?.(`myo.ai relay connected (gateway: ${relayResult.gatewayId})`);
+      } else if (relayResult.error) {
+        const logWarn = params.logRelay?.warn || params.log.warn;
+        logWarn(`myo.ai relay not started: ${relayResult.error}`);
+      }
+    } catch (err) {
+      const logError = params.logRelay?.error || params.log.warn;
+      logError(`myo.ai relay failed to start: ${String(err)}`);
+    }
+  }
+
+  return { browserControl, pluginServices, relayConnected };
 }

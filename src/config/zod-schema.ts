@@ -443,6 +443,20 @@ export const OpenClawSchema = z
           })
           .strict()
           .optional(),
+        relay: z
+          .object({
+            enabled: z.boolean().optional(),
+            autoConnect: z.boolean().optional(),
+            supabaseUrl: z.string().optional(),
+            supabaseAnonKey: z.string().optional(),
+            userId: z.string().optional(),
+            gatewayId: z.string().optional(),
+            reconnect: z.boolean().optional(),
+            reconnectDelayMs: z.number().int().positive().optional(),
+            heartbeatIntervalMs: z.number().int().positive().optional(),
+          })
+          .strict()
+          .optional(),
       })
       .strict()
       .optional(),

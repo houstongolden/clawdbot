@@ -115,10 +115,10 @@ function loadTokensFromDisk(): void {
  * Save tokens to disk
  */
 function saveTokensToDisk(): void {
-  try {
-    const filePath = getTokensFilePath();
-    const dirPath = path.dirname(filePath);
+  const filePath = getTokensFilePath();
+  const dirPath = path.dirname(filePath);
 
+  try {
     // Ensure directory exists
     if (!fs.existsSync(dirPath)) {
       fs.mkdirSync(dirPath, { recursive: true });
@@ -213,7 +213,7 @@ export function exchangePairingCode(
   // Remove the used pairing code
   pendingPairings.delete(normalizedCode);
 
-  // Persist tokens to disk (B06 fix)
+  // Persist tokens to disk
   saveTokensToDisk();
 
   return { success: true, token };
@@ -221,10 +221,20 @@ export function exchangePairingCode(
 
 /**
  * Validate an auth token
+ * If the token isn't in memory, reload from disk in case another process created it.
  */
 export function validateToken(token: string): boolean {
-  const approved = approvedTokens.get(token);
-  if (!approved) return false;
+  let approved = approvedTokens.get(token);
+
+  // If not found in memory, try reloading from disk (in case another process created it)
+  if (!approved) {
+    loadTokensFromDisk();
+    approved = approvedTokens.get(token);
+  }
+
+  if (!approved) {
+    return false;
+  }
 
   // Update last used time
   approved.lastUsedAt = Date.now();
