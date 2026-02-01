@@ -13,9 +13,9 @@ export type ResolveBonjourCliPathOptions = {
 
 export function formatBonjourInstanceName(displayName: string) {
   const trimmed = displayName.trim();
-  if (!trimmed) return "OpenClaw";
-  if (/openclaw/i.test(trimmed)) return trimmed;
-  return `${trimmed} (OpenClaw)`;
+  if (!trimmed) return "Myo";
+  if (/myo/i.test(trimmed)) return trimmed;
+  return `${trimmed} (Myo)`;
 }
 
 export function resolveBonjourCliPath(opts: ResolveBonjourCliPathOptions = {}): string | undefined {

@@ -35,24 +35,29 @@
   --border-strong: #3f3f46;
   --border-hover: #52525b;
   --input: #27272a;
-  --ring: #ff5c5c;
+  --ring: #71717a;
 
-  /* Accent - Punchy signature red */
-  --accent: #ff5c5c;
-  --accent-hover: #ff7070;
-  --accent-muted: #ff5c5c;
-  --accent-subtle: rgba(255, 92, 92, 0.15);
-  --accent-foreground: #fafafa;
-  --accent-glow: rgba(255, 92, 92, 0.25);
-  --primary: #ff5c5c;
-  --primary-foreground: #ffffff;
+  /* Accent - Monochrome white (consistent with Myo.ai zen theme) */
+  --accent: #ffffff;
+  --accent-hover: #e4e4e7;
+  --accent-muted: #a1a1aa;
+  --accent-subtle: rgba(255, 255, 255, 0.08);
+  --accent-foreground: #0a0a0a;
+  --accent-glow: rgba(255, 255, 255, 0.15);
+  --primary: #fafafa;
+  --primary-foreground: #0a0a0a;
+  
+  /* Brand - Orange gradient for logo/identity */
+  --brand: #FF8844;
+  --brand-light: #FFAA55;
+  --brand-dark: #FF6633;
 
-  /* Secondary - Teal accent for variety */
+  /* Secondary - Subtle gray */
   --secondary: #1e2028;
   --secondary-foreground: #f4f4f5;
-  --accent-2: #14b8a6;
-  --accent-2-muted: rgba(20, 184, 166, 0.7);
-  --accent-2-subtle: rgba(20, 184, 166, 0.15);
+  --accent-2: #71717a;
+  --accent-2-muted: rgba(113, 113, 122, 0.7);
+  --accent-2-subtle: rgba(113, 113, 122, 0.15);
 
   /* Semantic - More saturated */
   --ok: #22c55e;
@@ -68,8 +73,8 @@
   --danger-subtle: rgba(239, 68, 68, 0.12);
   --info: #3b82f6;
 
-  /* Focus - With glow */
-  --focus: rgba(255, 92, 92, 0.25);
+  /* Focus - Subtle monochrome glow */
+  --focus: rgba(255, 255, 255, 0.15);
   --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring);
   --focus-glow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ring), 0 0 20px var(--accent-glow);
 

@@ -11,6 +11,9 @@
 
 import type { IncomingMessage } from "node:http";
 import type { WebSocket, WebSocketServer } from "ws";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import { validateToken } from "./pairing-api.js";
 import {
   initSessionSync,
@@ -20,6 +23,8 @@ import {
   getLatestSnapshot,
   markHandoff,
 } from "./session-sync-api.js";
+import { loadSessionStore, resolveStorePath } from "../config/sessions.js";
+import { loadConfig } from "../config/io.js";
 
 // ============================================================================
 // Types (mirroring Myo.ai protocol.ts)
@@ -144,25 +149,67 @@ async function handleRequest(
       }
 
       case "gateway.info": {
-        // TODO: Get actual gateway info from config
+        // Get actual gateway info from config
+        let sessionCount = 0;
+        let channels: string[] = [];
+        let gatewayName = "Myobot";
+        let gatewayPort = 18789;
+
+        try {
+          const config = loadConfig() as Record<string, unknown>;
+          const storePath = resolveStorePath(config as any);
+          const store = loadSessionStore(storePath);
+          sessionCount = Object.keys(store).length;
+
+          // Extract enabled channels
+          const channelsCfg = config.channels as Record<string, unknown> | undefined;
+          if (channelsCfg) {
+            channels = Object.keys(channelsCfg);
+          }
+
+          const gatewayCfg = config.gateway as Record<string, unknown> | undefined;
+          if (gatewayCfg?.port) gatewayPort = gatewayCfg.port as number;
+        } catch {
+          // Fallback to defaults
+        }
+
         sendResponse(ws, msg.id, {
-          name: "Myobot",
-          version: process.env.OPENCLAW_SERVICE_VERSION || "unknown",
+          name: gatewayName,
+          version: process.env.OPENCLAW_SERVICE_VERSION || "1.0.0",
           uptime: process.uptime() * 1000,
           agent: "main",
-          channels: ["telegram"], // TODO: Get from config
-          sessionCount: 0, // TODO: Count sessions
+          channels,
+          sessionCount,
+          workspace: process.cwd(),
+          hostname: os.hostname(),
+          port: gatewayPort,
         });
         break;
       }
 
       case "gateway.config": {
-        // TODO: Implement config get/set
-        sendResponse(ws, msg.id, {
-          config: {
-            model: "anthropic/claude-sonnet-4-20250514",
-          },
-        });
+        try {
+          const config = loadConfig() as Record<string, unknown>;
+          const channelsCfg = config.channels as Record<string, unknown> | undefined;
+          const gatewayCfg = config.gateway as Record<string, unknown> | undefined;
+
+          sendResponse(ws, msg.id, {
+            config: {
+              workspace: process.cwd(),
+              channels: channelsCfg ? Object.keys(channelsCfg) : [],
+              gateway: gatewayCfg
+                ? {
+                    port: gatewayCfg.port,
+                  }
+                : null,
+            },
+          });
+        } catch (e) {
+          sendResponse(ws, msg.id, undefined, {
+            code: "CONFIG_ERROR",
+            message: e instanceof Error ? e.message : "Failed to read config",
+          });
+        }
         break;
       }
 
@@ -224,21 +271,82 @@ async function handleRequest(
       }
 
       case "session.list": {
-        // TODO: Implement actual session listing
-        sendResponse(ws, msg.id, {
-          sessions: [],
-          total: 0,
-        });
+        try {
+          const config = loadConfig() as Record<string, unknown>;
+          const storePath = resolveStorePath(config as any);
+          const store = loadSessionStore(storePath);
+
+          const sessions = Object.entries(store).map(([key, entry]) => ({
+            sessionKey: key,
+            sessionId: entry.sessionId,
+            channel: entry.channel || entry.lastChannel,
+            lastTo: entry.lastTo,
+            updatedAt: entry.updatedAt,
+            label: entry.label,
+            displayName: entry.displayName,
+            chatType: entry.chatType,
+            model: entry.model,
+            totalTokens: entry.totalTokens,
+          }));
+
+          // Sort by updated time, most recent first
+          sessions.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+
+          sendResponse(ws, msg.id, {
+            sessions,
+            total: sessions.length,
+          });
+        } catch (e) {
+          sendResponse(ws, msg.id, undefined, {
+            code: "SESSION_ERROR",
+            message: e instanceof Error ? e.message : "Failed to list sessions",
+          });
+        }
         break;
       }
 
       case "session.get": {
         const { sessionKey } = params as { sessionKey: string };
-        // TODO: Implement actual session fetching
-        sendResponse(ws, msg.id, undefined, {
-          code: "NOT_FOUND",
-          message: `Session not found: ${sessionKey}`,
-        });
+
+        try {
+          const config = loadConfig() as Record<string, unknown>;
+          const storePath = resolveStorePath(config as any);
+          const store = loadSessionStore(storePath);
+          const entry = store[sessionKey];
+
+          if (!entry) {
+            sendResponse(ws, msg.id, undefined, {
+              code: "NOT_FOUND",
+              message: `Session not found: ${sessionKey}`,
+            });
+            break;
+          }
+
+          const session: Record<string, unknown> = {
+            sessionKey,
+            sessionId: entry.sessionId,
+            channel: entry.channel || entry.lastChannel,
+            lastTo: entry.lastTo,
+            updatedAt: entry.updatedAt,
+            label: entry.label,
+            displayName: entry.displayName,
+            chatType: entry.chatType,
+            model: entry.model,
+            modelProvider: entry.modelProvider,
+            totalTokens: entry.totalTokens,
+            inputTokens: entry.inputTokens,
+            outputTokens: entry.outputTokens,
+            compactionCount: entry.compactionCount,
+            sessionFile: entry.sessionFile,
+          };
+
+          sendResponse(ws, msg.id, { session });
+        } catch (e) {
+          sendResponse(ws, msg.id, undefined, {
+            code: "SESSION_ERROR",
+            message: e instanceof Error ? e.message : "Failed to get session",
+          });
+        }
         break;
       }
 
@@ -254,21 +362,87 @@ async function handleRequest(
 
       case "files.list": {
         const { path: dirPath } = params as { path?: string };
-        // TODO: Implement file listing with security checks
-        sendResponse(ws, msg.id, { files: [] });
+
+        try {
+          const workspace = process.cwd();
+          const targetPath = dirPath ? path.resolve(workspace, dirPath) : workspace;
+
+          // Security: ensure path is within workspace
+          if (!targetPath.startsWith(workspace)) {
+            sendResponse(ws, msg.id, undefined, {
+              code: "FORBIDDEN",
+              message: "Access denied: path outside workspace",
+            });
+            break;
+          }
+
+          const entries = await fs.promises.readdir(targetPath, { withFileTypes: true });
+          const files = entries.map((entry) => ({
+            name: entry.name,
+            path: path.relative(workspace, path.join(targetPath, entry.name)),
+            isDirectory: entry.isDirectory(),
+            isFile: entry.isFile(),
+          }));
+
+          sendResponse(ws, msg.id, {
+            files,
+            workspace,
+            currentPath: path.relative(workspace, targetPath) || ".",
+          });
+        } catch (e) {
+          sendResponse(ws, msg.id, undefined, {
+            code: "FILE_ERROR",
+            message: e instanceof Error ? e.message : "Failed to list files",
+          });
+        }
         break;
       }
 
       case "files.read": {
-        const { path: filePath, maxBytes } = params as {
+        const { path: filePath, maxBytes = 1024 * 1024 } = params as {
           path: string;
           maxBytes?: number;
         };
-        // TODO: Implement file reading with security checks
-        sendResponse(ws, msg.id, undefined, {
-          code: "NOT_IMPLEMENTED",
-          message: "File reading not yet implemented",
-        });
+
+        try {
+          const workspace = process.cwd();
+          const targetPath = path.resolve(workspace, filePath);
+
+          // Security: ensure path is within workspace
+          if (!targetPath.startsWith(workspace)) {
+            sendResponse(ws, msg.id, undefined, {
+              code: "FORBIDDEN",
+              message: "Access denied: path outside workspace",
+            });
+            break;
+          }
+
+          const stat = await fs.promises.stat(targetPath);
+          if (stat.isDirectory()) {
+            sendResponse(ws, msg.id, undefined, {
+              code: "IS_DIRECTORY",
+              message: "Cannot read directory as file",
+            });
+            break;
+          }
+
+          // Read with size limit
+          const content = await fs.promises.readFile(targetPath, "utf-8");
+          const truncated = content.length > maxBytes;
+
+          sendResponse(ws, msg.id, {
+            content: truncated ? content.slice(0, maxBytes) : content,
+            truncated,
+            size: stat.size,
+            mtime: stat.mtime.toISOString(),
+          });
+        } catch (e: any) {
+          const code = e?.code === "ENOENT" ? "NOT_FOUND" : "FILE_ERROR";
+          sendResponse(ws, msg.id, undefined, {
+            code,
+            message: e instanceof Error ? e.message : "Failed to read file",
+          });
+        }
         break;
       }
 
@@ -282,21 +456,71 @@ async function handleRequest(
           content: string;
           append?: boolean;
         };
-        // TODO: Implement file writing with security checks
-        sendResponse(ws, msg.id, undefined, {
-          code: "NOT_IMPLEMENTED",
-          message: "File writing not yet implemented",
-        });
+
+        try {
+          const workspace = process.cwd();
+          const targetPath = path.resolve(workspace, filePath);
+
+          // Security: ensure path is within workspace
+          if (!targetPath.startsWith(workspace)) {
+            sendResponse(ws, msg.id, undefined, {
+              code: "FORBIDDEN",
+              message: "Access denied: path outside workspace",
+            });
+            break;
+          }
+
+          // Ensure parent directory exists
+          await fs.promises.mkdir(path.dirname(targetPath), { recursive: true });
+
+          if (append) {
+            await fs.promises.appendFile(targetPath, content, "utf-8");
+          } else {
+            await fs.promises.writeFile(targetPath, content, "utf-8");
+          }
+
+          const stat = await fs.promises.stat(targetPath);
+          sendResponse(ws, msg.id, {
+            success: true,
+            size: stat.size,
+            mtime: stat.mtime.toISOString(),
+          });
+        } catch (e) {
+          sendResponse(ws, msg.id, undefined, {
+            code: "FILE_ERROR",
+            message: e instanceof Error ? e.message : "Failed to write file",
+          });
+        }
         break;
       }
 
       case "files.delete": {
         const { path: filePath } = params as { path: string };
-        // TODO: Implement file deletion with security checks
-        sendResponse(ws, msg.id, undefined, {
-          code: "NOT_IMPLEMENTED",
-          message: "File deletion not yet implemented",
-        });
+
+        try {
+          const workspace = process.cwd();
+          const targetPath = path.resolve(workspace, filePath);
+
+          // Security: ensure path is within workspace
+          if (!targetPath.startsWith(workspace)) {
+            sendResponse(ws, msg.id, undefined, {
+              code: "FORBIDDEN",
+              message: "Access denied: path outside workspace",
+            });
+            break;
+          }
+
+          // Use trash/recycle when possible for safety
+          await fs.promises.rm(targetPath, { recursive: true });
+
+          sendResponse(ws, msg.id, { success: true });
+        } catch (e: any) {
+          const code = e?.code === "ENOENT" ? "NOT_FOUND" : "FILE_ERROR";
+          sendResponse(ws, msg.id, undefined, {
+            code,
+            message: e instanceof Error ? e.message : "Failed to delete file",
+          });
+        }
         break;
       }
 

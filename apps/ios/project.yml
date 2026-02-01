@@ -1,6 +1,6 @@
-name: OpenClaw
+name: Myo
 options:
-  bundleIdPrefix: ai.openclaw
+  bundleIdPrefix: ai.myo
   deploymentTarget:
     iOS: "18.0"
   xcodeVersion: "16.0"
@@ -16,17 +16,17 @@ packages:
     path: ../../Swabble
 
 schemes:
-  OpenClaw:
+  Myo:
     shared: true
     build:
       targets:
-        OpenClaw: all
+        Myo: all
     test:
       targets:
-        - OpenClawTests
+        - MyoTests
 
 targets:
-  OpenClaw:
+  Myo:
     type: application
     platform: iOS
     sources:
@@ -71,33 +71,34 @@ targets:
         CODE_SIGN_IDENTITY: "Apple Development"
         CODE_SIGN_STYLE: Manual
         DEVELOPMENT_TEAM: Y5PE65HELJ
-        PRODUCT_BUNDLE_IDENTIFIER: ai.openclaw.ios
-        PROVISIONING_PROFILE_SPECIFIER: "ai.openclaw.ios Development"
+        PRODUCT_BUNDLE_IDENTIFIER: ai.myo.ios
+        PROVISIONING_PROFILE_SPECIFIER: "ai.myo.ios Development"
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
         ENABLE_APPINTENTS_METADATA: NO
     info:
       path: Sources/Info.plist
       properties:
-        CFBundleDisplayName: OpenClaw
+        CFBundleDisplayName: Myo
         CFBundleIconName: AppIcon
-        CFBundleShortVersionString: "2026.1.27-beta.1"
-        CFBundleVersion: "20260126"
+        CFBundleShortVersionString: "2026.1.31"
+        CFBundleVersion: "20260131"
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UIBackgroundModes:
           - audio
-        NSLocalNetworkUsageDescription: OpenClaw discovers and connects to your OpenClaw gateway on the local network.
+        NSLocalNetworkUsageDescription: Myo discovers and connects to your gateway on the local network.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoadsInWebContent: true
         NSBonjourServices:
           - _openclaw-gw._tcp
-        NSCameraUsageDescription: OpenClaw can capture photos or short video clips when requested via the gateway.
-        NSLocationWhenInUseUsageDescription: OpenClaw uses your location when you allow location sharing.
-        NSLocationAlwaysAndWhenInUseUsageDescription: OpenClaw can share your location in the background when you enable Always.
-        NSMicrophoneUsageDescription: OpenClaw needs microphone access for voice wake.
-        NSSpeechRecognitionUsageDescription: OpenClaw uses on-device speech recognition for voice wake.
+          - _myo-gw._tcp
+        NSCameraUsageDescription: Myo can capture photos or short video clips when requested via the gateway.
+        NSLocationWhenInUseUsageDescription: Myo uses your location when you allow location sharing.
+        NSLocationAlwaysAndWhenInUseUsageDescription: Myo can share your location in the background when you enable Always.
+        NSMicrophoneUsageDescription: Myo needs microphone access for voice wake.
+        NSSpeechRecognitionUsageDescription: Myo uses on-device speech recognition for voice wake.
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
@@ -109,26 +110,26 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
 
-  OpenClawTests:
+  MyoTests:
     type: bundle.unit-test
     platform: iOS
     sources:
       - path: Tests
     dependencies:
-      - target: OpenClaw
+      - target: Myo
       - package: Swabble
         product: SwabbleKit
       - sdk: AppIntents.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ai.openclaw.ios.tests
+        PRODUCT_BUNDLE_IDENTIFIER: ai.myo.ios.tests
         SWIFT_VERSION: "6.0"
         SWIFT_STRICT_CONCURRENCY: complete
-        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/OpenClaw.app/OpenClaw"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/Myo.app/Myo"
         BUNDLE_LOADER: "$(TEST_HOST)"
     info:
       path: Tests/Info.plist
       properties:
-        CFBundleDisplayName: OpenClawTests
-        CFBundleShortVersionString: "2026.1.27-beta.1"
-        CFBundleVersion: "20260126"
+        CFBundleDisplayName: MyoTests
+        CFBundleShortVersionString: "2026.1.31"
+        CFBundleVersion: "20260131"

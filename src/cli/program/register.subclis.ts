@@ -29,6 +29,14 @@ const loadConfig = async (): Promise<OpenClawConfig> => {
 
 const entries: SubCliEntry[] = [
   {
+    name: "pair",
+    description: "Connect gateway to Myo.ai account",
+    register: async (program) => {
+      const mod = await import("../myo-pair-cli.js");
+      mod.registerMyoPairCli(program);
+    },
+  },
+  {
     name: "acp",
     description: "Agent Control Protocol tools",
     register: async (program) => {

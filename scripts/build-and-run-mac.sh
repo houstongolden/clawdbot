@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../apps/macos"
 
 BUILD_PATH=".build-local"
-PRODUCT="OpenClaw"
+PRODUCT="Myo"
 BIN="$BUILD_PATH/debug/$PRODUCT"
 
 printf "\n▶️  Building $PRODUCT (debug, build path: $BUILD_PATH)\n"
