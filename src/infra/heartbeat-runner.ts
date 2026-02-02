@@ -42,6 +42,12 @@ import { CommandLane } from "../process/lanes.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { normalizeAgentId, toAgentStoreSessionKey } from "../routing/session-key.js";
 import { emitHeartbeatEvent, resolveIndicatorType } from "./heartbeat-events.js";
+import {
+  fetchAssignedMcTasks,
+  insertMcActivity,
+  renderTasksAsHeartbeatMarkdown,
+  updateMcTaskStatus,
+} from "../mission-control/tasks.js";
 import { resolveHeartbeatVisibility } from "./heartbeat-visibility.js";
 import {
   type HeartbeatRunResult,
@@ -460,26 +466,21 @@ export async function runHeartbeatOnce(opts: {
     return { status: "skipped", reason: "requests-in-flight" };
   }
 
-  // Skip heartbeat if HEARTBEAT.md exists but has no actionable content.
-  // This saves API calls/costs when the file is effectively empty (only comments/headers).
-  // EXCEPTION: Don't skip for exec events - they have pending system events to process.
-  const isExecEventReason = opts.reason === "exec-event";
   const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
-  const heartbeatFilePath = path.join(workspaceDir, DEFAULT_HEARTBEAT_FILENAME);
+
+  // Phase 2 (Task unification): read WORKING.md (if present), then fetch tasks assigned
+  // to this agent from Mission Control (mc_tasks in Supabase).
+  const workingFilePath = path.join(workspaceDir, "WORKING.md");
+  let workingMd: string | null = null;
   try {
-    const heartbeatFileContent = await fs.readFile(heartbeatFilePath, "utf-8");
-    if (isHeartbeatContentEffectivelyEmpty(heartbeatFileContent) && !isExecEventReason) {
-      emitHeartbeatEvent({
-        status: "skipped",
-        reason: "empty-heartbeat-file",
-        durationMs: Date.now() - startedAt,
-      });
-      return { status: "skipped", reason: "empty-heartbeat-file" };
-    }
+    workingMd = await fs.readFile(workingFilePath, "utf-8");
   } catch {
-    // File doesn't exist or can't be read - proceed with heartbeat.
-    // The LLM prompt says "if it exists" so this is expected behavior.
+    workingMd = null;
   }
+
+  const mcAssigned = await fetchAssignedMcTasks({ agentName: agentId, includeDone: false });
+  const mcAgent = mcAssigned?.agent ?? null;
+  const mcTasks = mcAssigned?.tasks ?? [];
 
   const { entry, sessionKey, storePath } = resolveHeartbeatSession(cfg, agentId, heartbeat);
   const previousUpdatedAt = entry?.updatedAt;
@@ -495,6 +496,29 @@ export async function runHeartbeatOnce(opts: {
   const { sender } = resolveHeartbeatSenderContext({ cfg, entry, delivery });
   const responsePrefix = resolveEffectiveMessagesConfig(cfg, agentId).responsePrefix;
 
+  // Skip heartbeat when HEARTBEAT.md has no actionable content AND Mission Control has no
+  // tasks assigned to this agent.
+  // This avoids unnecessary LLM calls while still sending a lightweight HEARTBEAT_OK.
+  // EXCEPTION: Don't skip for exec events - they have pending system events to process.
+  const isExecEventReason = opts.reason === "exec-event";
+  if (!isExecEventReason && mcTasks.length === 0) {
+    const heartbeatFilePath = path.join(workspaceDir, DEFAULT_HEARTBEAT_FILENAME);
+    try {
+      const heartbeatFileContent = await fs.readFile(heartbeatFilePath, "utf-8");
+      if (isHeartbeatContentEffectivelyEmpty(heartbeatFileContent)) {
+        await maybeSendHeartbeatOk();
+        emitHeartbeatEvent({
+          status: "ok",
+          durationMs: Date.now() - startedAt,
+          channel: delivery.channel !== "none" ? delivery.channel : undefined,
+        });
+        return { status: "ok" };
+      }
+    } catch {
+      // HEARTBEAT.md missing or unreadable: proceed to normal heartbeat.
+    }
+  }
+
   // Check if this is an exec event with pending exec completion system events.
   // If so, use a specialized prompt that instructs the model to relay the result
   // instead of the standard heartbeat prompt with "reply HEARTBEAT_OK".
@@ -502,7 +526,37 @@ export async function runHeartbeatOnce(opts: {
   const pendingEvents = isExecEvent ? peekSystemEvents(sessionKey) : [];
   const hasExecCompletion = pendingEvents.some((evt) => evt.includes("Exec finished"));
 
-  const prompt = hasExecCompletion ? EXEC_EVENT_PROMPT : resolveHeartbeatPrompt(cfg, heartbeat);
+  let prompt = hasExecCompletion ? EXEC_EVENT_PROMPT : resolveHeartbeatPrompt(cfg, heartbeat);
+
+  if (!hasExecCompletion) {
+    const injected: string[] = [];
+    if (mcTasks.length) {
+      injected.push(renderTasksAsHeartbeatMarkdown({ agentName: agentId, tasks: mcTasks }));
+    }
+    if (workingMd && workingMd.trim()) {
+      injected.push(`# WORKING.md\n\n${workingMd.trim()}`);
+    }
+    if (injected.length) {
+      prompt = `${prompt}\n\n${injected.join("\n\n---\n\n")}`;
+    }
+  }
+
+  // If Mission Control tasks exist, nudge them into execution.
+  // (Only promote 'assigned' → 'in_progress'; other statuses are left alone.)
+  if (!hasExecCompletion && mcAgent && mcTasks.length) {
+    const toPromote = mcTasks.filter((t) => t.status === "assigned");
+    await Promise.all(
+      toPromote.map((t) => updateMcTaskStatus({ taskId: t.id, status: "in_progress" })),
+    );
+
+    await insertMcActivity({
+      type: "heartbeat",
+      agent_id: mcAgent.id,
+      message: `Heartbeat started (${toPromote.length}/${mcTasks.length} tasks promoted to in_progress)`,
+      metadata: { taskCount: mcTasks.length, promoted: toPromote.map((t) => t.id) },
+    });
+  }
+
   const ctx = {
     Body: prompt,
     From: sender,
@@ -731,6 +785,20 @@ export async function runHeartbeatOnce(opts: {
         };
         await saveSessionStore(storePath, store);
       }
+    }
+
+    if (mcAgent) {
+      await insertMcActivity({
+        type: "heartbeat_sent",
+        agent_id: mcAgent.id,
+        message: previewText?.slice(0, 500) || "(no content)",
+        metadata: {
+          hasMedia: mediaUrls.length > 0,
+          deliveryChannel: delivery.channel,
+          deliveryTo: delivery.to,
+          taskIds: mcTasks.map((t) => t.id),
+        },
+      });
     }
 
     emitHeartbeatEvent({
