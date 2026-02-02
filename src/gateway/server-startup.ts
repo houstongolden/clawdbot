@@ -23,6 +23,11 @@ import {
   shouldWakeFromRestartSentinel,
 } from "./server-restart-sentinel.js";
 import { startRelayClient, stopRelayClient, isRelayEnabled } from "./relay-client.js";
+import { startMemorySync } from "./memory-sync.js";
+import { startProjectSync } from "./project-sync.js";
+import * as fs from "node:fs/promises";
+import * as path from "node:path";
+import os from "node:os";
 
 export async function startGatewaySidecars(params: {
   cfg: ReturnType<typeof loadConfig>;
@@ -165,6 +170,28 @@ export async function startGatewaySidecars(params: {
   // Start Myo.ai relay client if configured (gateway.relay.enabled)
   // This enables cloud access to local gateway features (files, sessions, etc.)
   let relayConnected = false;
+
+  // Helper: load latest Myo gateway token (issued during pairing) from disk
+  async function loadLatestMyoGatewayToken(): Promise<string | null> {
+    const override = process.env.MYO_GATEWAY_TOKEN?.trim();
+    if (override) return override;
+
+    const stateDir = process.env.OPENCLAW_STATE_DIR?.trim()
+      ? process.env.OPENCLAW_STATE_DIR!.trim().replace(/^~(?=$|[\\/])/, os.homedir())
+      : path.join(os.homedir(), ".openclaw");
+
+    const tokenPath = path.join(stateDir, "myo-tokens.json");
+    try {
+      const raw = await fs.readFile(tokenPath, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed) || parsed.length === 0) return null;
+      const last = parsed[parsed.length - 1];
+      if (typeof last?.token === "string" && last.token.trim()) return last.token.trim();
+      return null;
+    } catch {
+      return null;
+    }
+  }
   const skipRelay = isTruthyEnvValue(process.env.OPENCLAW_SKIP_RELAY);
   if (!skipRelay && isRelayEnabled()) {
     try {
@@ -173,6 +200,43 @@ export async function startGatewaySidecars(params: {
         relayConnected = true;
         const logInfo = params.logRelay?.info || params.log.info;
         logInfo?.(`myo.ai relay connected (gateway: ${relayResult.gatewayId})`);
+
+        // Start background sync loops (Dropbox-style) once relay is up.
+        // These loops are safe/allowlisted and require a valid MYO gateway token.
+        const gatewayToken = (await loadLatestMyoGatewayToken()) || "";
+        const cloudApiUrl = process.env.MYO_CLOUD_API_URL || "https://myo.ai";
+        const everyMs = parseInt(process.env.MYO_MEMORY_SYNC_EVERY_MS || "300000", 10);
+
+        if (gatewayToken) {
+          try {
+            startMemorySync({
+              workspaceDir: params.defaultWorkspaceDir,
+              cloudApiUrl,
+              gatewayToken,
+              everyMs: Number.isFinite(everyMs) ? everyMs : 300000,
+            });
+            logInfo?.("memory sync started");
+          } catch (e) {
+            const logWarn = params.logRelay?.warn || params.log.warn;
+            logWarn(`memory sync failed to start: ${String(e)}`);
+          }
+
+          try {
+            startProjectSync({
+              workspaceDir: params.defaultWorkspaceDir,
+              cloudApiUrl,
+              gatewayToken,
+              everyMs: Number.isFinite(everyMs) ? everyMs : 300000,
+            });
+            logInfo?.("project sync started");
+          } catch (e) {
+            const logWarn = params.logRelay?.warn || params.log.warn;
+            logWarn(`project sync failed to start: ${String(e)}`);
+          }
+        } else {
+          const logWarn = params.logRelay?.warn || params.log.warn;
+          logWarn("sync loops not started: missing MYO gateway token (pairing token)");
+        }
       } else if (relayResult.error) {
         const logWarn = params.logRelay?.warn || params.log.warn;
         logWarn(`myo.ai relay not started: ${relayResult.error}`);
