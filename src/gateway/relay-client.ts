@@ -24,7 +24,6 @@ import { loadConfig } from "../config/config.js";
 import { getMachineDisplayName } from "../infra/machine-name.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { existsSync, statSync } from "node:fs";
 import {
   loadCombinedSessionStoreForGateway,
   listSessionsFromStore,
