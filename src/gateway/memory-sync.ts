@@ -150,6 +150,7 @@ function buildTags(relPath: string): string[] {
   }
   if (relPath === "MEMORY.md") tags.push("root");
   if (relPath.startsWith("memory/")) tags.push("daily");
+  if (relPath.startsWith("projects/")) tags.push("project-doc");
   return tags;
 }
 
@@ -166,6 +167,25 @@ async function gatherAllowlistedFiles(workspaceDir: string): Promise<string[]> {
   for (const agentDir of await listAgentDirs(workspaceDir)) {
     out.push(path.join(agentDir, "SOUL.md"));
     out.push(path.join(agentDir, "memory", "WORKING.md"));
+  }
+
+  // allowlist: planning/project docs under workspace/projects (markdown only)
+  // This keeps key architecture/todo docs visible in the web UI, without syncing secrets.
+  try {
+    const projectsDir = path.join(workspaceDir, "projects");
+    const entries = await fs.readdir(projectsDir, { withFileTypes: true });
+    for (const ent of entries) {
+      if (!ent.isDirectory() || ent.name.startsWith(".")) continue;
+      const sub = path.join(projectsDir, ent.name);
+      const docs = await fs.readdir(sub, { withFileTypes: true }).catch(() => []);
+      for (const d of docs) {
+        if (!d.isFile()) continue;
+        if (!d.name.toLowerCase().endsWith(".md")) continue;
+        out.push(path.join(sub, d.name));
+      }
+    }
+  } catch {
+    // ignore
   }
 
   // Deduplicate
