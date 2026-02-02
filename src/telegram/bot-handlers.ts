@@ -23,6 +23,15 @@ import { readTelegramAllowFromStore } from "./pairing-store.js";
 import { resolveChannelConfigWrites } from "../channels/plugins/config-writes.js";
 import { buildInlineKeyboard } from "./send.js";
 
+let __telegramTestFlushImpl: null | (() => Promise<void>) = null;
+
+// Test-only flush hook used by Vitest suites that rely on fake timers.
+// Vitest doesn't reliably await async work spawned from setTimeout callbacks.
+// This hook deterministically drains buffered media groups and text fragments.
+export const __telegramTestFlush = async (): Promise<void> => {
+  await __telegramTestFlushImpl?.();
+};
+
 export const registerTelegramHandlers = ({
   cfg,
   accountId,
@@ -187,6 +196,33 @@ export const registerTelegramHandlers = ({
         .catch(() => undefined);
       await textFragmentProcessing;
     }, TELEGRAM_TEXT_FRAGMENT_MAX_GAP_MS);
+  };
+
+  // Install (or replace) test flush hook for the most recently-registered bot.
+  __telegramTestFlushImpl = async () => {
+    // Drain text fragments
+    for (const entry of textFragmentBuffer.values()) {
+      clearTimeout(entry.timer);
+      textFragmentBuffer.delete(entry.key);
+      textFragmentProcessing = textFragmentProcessing
+        .then(async () => {
+          await flushTextFragments(entry);
+        })
+        .catch(() => undefined);
+    }
+    await textFragmentProcessing;
+
+    // Drain media groups
+    for (const [mediaGroupId, entry] of mediaGroupBuffer.entries()) {
+      clearTimeout(entry.timer);
+      mediaGroupBuffer.delete(mediaGroupId);
+      mediaGroupProcessing = mediaGroupProcessing
+        .then(async () => {
+          await processMediaGroup(entry);
+        })
+        .catch(() => undefined);
+    }
+    await mediaGroupProcessing;
   };
 
   bot.on("callback_query", async (ctx) => {
