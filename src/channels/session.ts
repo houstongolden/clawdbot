@@ -24,13 +24,21 @@ export async function recordInboundSession(params: {
   onRecordError: (err: unknown) => void;
 }): Promise<void> {
   const { storePath, sessionKey, ctx, groupResolution, createIfMissing } = params;
-  void recordSessionMetaFromInbound({
-    storePath,
-    sessionKey,
-    ctx,
-    groupResolution,
-    createIfMissing,
-  }).catch(params.onRecordError);
+
+  // Important: await session store writes.
+  // Fire-and-forget can leave the lock held after the handler returns, which can
+  // cause lock contention/timeouts when another inbound message arrives quickly.
+  try {
+    await recordSessionMetaFromInbound({
+      storePath,
+      sessionKey,
+      ctx,
+      groupResolution,
+      createIfMissing,
+    });
+  } catch (err) {
+    params.onRecordError(err);
+  }
 
   const update = params.updateLastRoute;
   if (!update) return;
