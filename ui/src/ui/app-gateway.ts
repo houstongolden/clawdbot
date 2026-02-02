@@ -150,7 +150,26 @@ export function connectGateway(host: GatewayHost) {
     },
     onEvent: (evt) => handleGatewayEvent(host, evt),
     onGap: ({ expected, received }) => {
-      host.lastError = `event gap detected (expected seq ${expected}, got ${received}); refresh recommended`;
+      // A small reconnect/window can drop a couple events.
+      // Auto-heal by pulling fresh state for the active tab instead of forcing a manual refresh.
+      host.lastError = `event gap detected (expected seq ${expected}, got ${received}); resyncing…`;
+
+      // Debounce resync bursts.
+      const anyHost = host as unknown as { __gapResyncTimer?: number | null };
+      if (anyHost.__gapResyncTimer) window.clearTimeout(anyHost.__gapResyncTimer);
+      anyHost.__gapResyncTimer = window.setTimeout(() => {
+        try {
+          void loadNodes(host as unknown as OpenClawApp, { quiet: true });
+          void loadDevices(host as unknown as OpenClawApp, { quiet: true });
+          void loadAgents(host as unknown as OpenClawApp);
+          void loadSessions(host as unknown as OpenClawApp, { activeMinutes: CHAT_SESSIONS_ACTIVE_MINUTES });
+          void loadChatHistory(host as unknown as OpenClawApp);
+          void refreshActiveTab(host as unknown as Parameters<typeof refreshActiveTab>[0]);
+          host.lastError = null;
+        } catch {
+          host.lastError = `event gap detected (expected seq ${expected}, got ${received}); refresh recommended`;
+        }
+      }, 250);
     },
   });
   host.client.start();

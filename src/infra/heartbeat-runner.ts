@@ -496,6 +496,31 @@ export async function runHeartbeatOnce(opts: {
   const { sender } = resolveHeartbeatSenderContext({ cfg, entry, delivery });
   const responsePrefix = resolveEffectiveMessagesConfig(cfg, agentId).responsePrefix;
 
+  const heartbeatOkText = responsePrefix ? `${responsePrefix} ${HEARTBEAT_TOKEN}` : HEARTBEAT_TOKEN;
+  const canAttemptHeartbeatOk = Boolean(
+    visibility.showOk && delivery.channel !== "none" && delivery.to,
+  );
+  const maybeSendHeartbeatOk = async () => {
+    if (!canAttemptHeartbeatOk || delivery.channel === "none" || !delivery.to) return false;
+    const heartbeatPlugin = getChannelPlugin(delivery.channel);
+    if (heartbeatPlugin?.heartbeat?.checkReady) {
+      const readiness = await heartbeatPlugin.heartbeat.checkReady({
+        cfg,
+        accountId: delivery.accountId,
+        deps: opts.deps,
+      });
+      if (!readiness.ok) return false;
+    }
+    await deliverOutboundPayloads({
+      cfg,
+      channel: delivery.channel,
+      to: delivery.to,
+      accountId: delivery.accountId,
+      payloads: [{ text: heartbeatOkText }],
+      deps: opts.deps,
+    });
+    return true;
+  };
   // Skip heartbeat when HEARTBEAT.md has no actionable content AND Mission Control has no
   // tasks assigned to this agent.
   // This avoids unnecessary LLM calls while still sending a lightweight HEARTBEAT_OK.
@@ -508,11 +533,11 @@ export async function runHeartbeatOnce(opts: {
       if (isHeartbeatContentEffectivelyEmpty(heartbeatFileContent)) {
         await maybeSendHeartbeatOk();
         emitHeartbeatEvent({
-          status: "ok",
+          status: "ok-empty",
           durationMs: Date.now() - startedAt,
           channel: delivery.channel !== "none" ? delivery.channel : undefined,
         });
-        return { status: "ok" };
+        return { status: "skipped", reason: "empty-heartbeat-file" };
       }
     } catch {
       // HEARTBEAT.md missing or unreadable: proceed to normal heartbeat.
@@ -573,32 +598,6 @@ export async function runHeartbeatOnce(opts: {
     });
     return { status: "skipped", reason: "alerts-disabled" };
   }
-
-  const heartbeatOkText = responsePrefix ? `${responsePrefix} ${HEARTBEAT_TOKEN}` : HEARTBEAT_TOKEN;
-  const canAttemptHeartbeatOk = Boolean(
-    visibility.showOk && delivery.channel !== "none" && delivery.to,
-  );
-  const maybeSendHeartbeatOk = async () => {
-    if (!canAttemptHeartbeatOk || delivery.channel === "none" || !delivery.to) return false;
-    const heartbeatPlugin = getChannelPlugin(delivery.channel);
-    if (heartbeatPlugin?.heartbeat?.checkReady) {
-      const readiness = await heartbeatPlugin.heartbeat.checkReady({
-        cfg,
-        accountId: delivery.accountId,
-        deps: opts.deps,
-      });
-      if (!readiness.ok) return false;
-    }
-    await deliverOutboundPayloads({
-      cfg,
-      channel: delivery.channel,
-      to: delivery.to,
-      accountId: delivery.accountId,
-      payloads: [{ text: heartbeatOkText }],
-      deps: opts.deps,
-    });
-    return true;
-  };
 
   try {
     const replyResult = await getReplyFromConfig(ctx, { isHeartbeat: true }, cfg);

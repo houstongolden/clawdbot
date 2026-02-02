@@ -53,7 +53,7 @@ describe("buildPairingReply", () => {
       expect(text).toContain(`Pairing code: ${testCase.code}`);
       // CLI commands should respect OPENCLAW_PROFILE when set (most tests run with isolated profile)
       const commandRe = new RegExp(
-        `(?:openclaw|openclaw) --profile isolated pairing approve ${testCase.channel} <code>`,
+        `(?:myo|openclaw) --profile isolated pairing approve ${testCase.channel} <code>`,
       );
       expect(text).toMatch(commandRe);
     });

@@ -79,61 +79,60 @@ describe("applyCliProfileEnv", () => {
 });
 
 describe("formatCliCommand", () => {
+  // In this fork, the default CLI name is `myo` and commands should be rewritten accordingly.
   it("returns command unchanged when no profile is set", () => {
-    expect(formatCliCommand("openclaw doctor --fix", {})).toBe("openclaw doctor --fix");
+    expect(formatCliCommand("openclaw doctor --fix", {})).toBe("myo doctor --fix");
   });
 
   it("returns command unchanged when profile is default", () => {
     expect(formatCliCommand("openclaw doctor --fix", { OPENCLAW_PROFILE: "default" })).toBe(
-      "openclaw doctor --fix",
+      "myo doctor --fix",
     );
   });
 
   it("returns command unchanged when profile is Default (case-insensitive)", () => {
     expect(formatCliCommand("openclaw doctor --fix", { OPENCLAW_PROFILE: "Default" })).toBe(
-      "openclaw doctor --fix",
+      "myo doctor --fix",
     );
   });
 
   it("returns command unchanged when profile is invalid", () => {
     expect(formatCliCommand("openclaw doctor --fix", { OPENCLAW_PROFILE: "bad profile" })).toBe(
-      "openclaw doctor --fix",
+      "myo doctor --fix",
     );
   });
 
   it("returns command unchanged when --profile is already present", () => {
     expect(
       formatCliCommand("openclaw --profile work doctor --fix", { OPENCLAW_PROFILE: "work" }),
-    ).toBe("openclaw --profile work doctor --fix");
+    ).toBe("myo --profile work doctor --fix");
   });
 
   it("returns command unchanged when --dev is already present", () => {
     expect(formatCliCommand("openclaw --dev doctor", { OPENCLAW_PROFILE: "dev" })).toBe(
-      "openclaw --dev doctor",
+      "myo --dev doctor",
     );
   });
 
   it("inserts --profile flag when profile is set", () => {
     expect(formatCliCommand("openclaw doctor --fix", { OPENCLAW_PROFILE: "work" })).toBe(
-      "openclaw --profile work doctor --fix",
+      "myo --profile work doctor --fix",
     );
   });
 
   it("trims whitespace from profile", () => {
     expect(formatCliCommand("openclaw doctor --fix", { OPENCLAW_PROFILE: "  jbopenclaw  " })).toBe(
-      "openclaw --profile jbopenclaw doctor --fix",
+      "myo --profile jbopenclaw doctor --fix",
     );
   });
 
   it("handles command with no args after openclaw", () => {
-    expect(formatCliCommand("openclaw", { OPENCLAW_PROFILE: "test" })).toBe(
-      "openclaw --profile test",
-    );
+    expect(formatCliCommand("openclaw", { OPENCLAW_PROFILE: "test" })).toBe("myo --profile test");
   });
 
   it("handles pnpm wrapper", () => {
     expect(formatCliCommand("pnpm openclaw doctor", { OPENCLAW_PROFILE: "work" })).toBe(
-      "pnpm openclaw --profile work doctor",
+      "pnpm myo --profile work doctor",
     );
   });
 });

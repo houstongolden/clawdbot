@@ -339,7 +339,8 @@ describe("telegram media groups", () => {
       await second;
 
       expect(replySpy).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(MEDIA_GROUP_FLUSH_MS);
+      const { __telegramTestFlush } = await import("./bot-handlers.js");
+      await __telegramTestFlush();
 
       expect(runtimeError).not.toHaveBeenCalled();
       expect(replySpy).toHaveBeenCalledTimes(1);
@@ -405,7 +406,8 @@ describe("telegram media groups", () => {
       await Promise.all([first, second]);
 
       expect(replySpy).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(MEDIA_GROUP_FLUSH_MS);
+      const { __telegramTestFlush } = await import("./bot-handlers.js");
+      await __telegramTestFlush();
 
       expect(replySpy).toHaveBeenCalledTimes(2);
 
@@ -753,7 +755,8 @@ describe("telegram text fragments", () => {
       });
 
       expect(replySpy).not.toHaveBeenCalled();
-      await vi.advanceTimersByTimeAsync(TEXT_FRAGMENT_FLUSH_MS);
+      const { __telegramTestFlush } = await import("./bot-handlers.js");
+      await __telegramTestFlush();
 
       expect(replySpy).toHaveBeenCalledTimes(1);
       const payload = replySpy.mock.calls[0][0] as { RawBody?: string; Body?: string };
