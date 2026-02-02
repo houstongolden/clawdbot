@@ -21,9 +21,7 @@ vi.mock("../auto-reply/skill-commands.js", () => ({
   listSkillCommandsForAgents,
 }));
 
-const { sessionStorePath } = vi.hoisted(() => ({
-  sessionStorePath: `/tmp/openclaw-telegram-bot-${Math.random().toString(16).slice(2)}.json`,
-}));
+let sessionStorePath = `/tmp/openclaw-telegram-bot-${Math.random().toString(16).slice(2)}.json`;
 
 function resolveSkillCommands(config: Parameters<typeof listNativeCommandSpecsForConfig>[0]) {
   return listSkillCommandsForAgents({ cfg: config });
@@ -179,6 +177,16 @@ describe("createTelegramBot", () => {
     ({ createTelegramBot, getTelegramSequentialKey } = await import("./bot.js"));
     replyModule = await import("../auto-reply/reply.js");
     process.env.TZ = "UTC";
+
+    // Use a unique session store path per test to avoid lock contention across test cases.
+    sessionStorePath = `/tmp/openclaw-telegram-bot-${Math.random().toString(16).slice(2)}.json`;
+    try {
+      fs.rmSync(sessionStorePath, { force: true });
+      fs.rmSync(`${sessionStorePath}.lock`, { force: true });
+    } catch {
+      // ignore
+    }
+
     resetInboundDedupe();
     loadConfig.mockReturnValue({
       agents: {
@@ -204,6 +212,12 @@ describe("createTelegramBot", () => {
     sequentializeKey = undefined;
   });
   afterEach(() => {
+    try {
+      fs.rmSync(sessionStorePath, { force: true });
+      fs.rmSync(`${sessionStorePath}.lock`, { force: true });
+    } catch {
+      // ignore
+    }
     process.env.TZ = ORIGINAL_TZ;
   });
 

@@ -332,8 +332,8 @@ describe("statusCommand", () => {
         (l) =>
           l.includes("openclaw status --all") ||
           l.includes("openclaw --profile isolated status --all") ||
-          l.includes("openclaw status --all") ||
-          l.includes("openclaw --profile isolated status --all"),
+          l.includes("myo status --all") ||
+          l.includes("myo --profile isolated status --all"),
       ),
     ).toBe(true);
   });
